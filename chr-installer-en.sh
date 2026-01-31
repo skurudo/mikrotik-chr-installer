@@ -14,6 +14,20 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_debug() { echo -e "${CYAN}[DEBUG]${NC} $1"; }
 
 # ============================================
+# PASSWORD GENERATION AND SANITIZATION
+# ============================================
+generate_password() {
+    local length=$1
+    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length"
+}
+
+sanitize_input() {
+    local input="$1"
+    # Remove dangerous characters: ; " ' ` $ \ / and newlines
+    echo "$input" | tr -d ';"'\''`$\\/\n\r' | head -c 64
+}
+
+# ============================================
 # CONFIGURATION
 # ============================================
 CHR_VERSION="7.16.1"
@@ -23,8 +37,8 @@ CHR_IMG="chr-${CHR_VERSION}.img"
 WORK_DIR="/tmp/chr-install"
 MOUNT_POINT="/mnt/chr"
 
-# CHR Settings
-ADMIN_PASSWORD="PASSWORD"
+# CHR Settings (password auto-generated if not specified)
+ADMIN_PASSWORD=""
 DNS_SERVERS="8.8.8.8,8.8.4.4"
 
 # Flags
@@ -47,7 +61,7 @@ usage() {
     echo "  --yes, -y        No confirmations (automatic mode)"
     echo "  --reboot         Automatic reboot (requires --yes)"
     echo "  --version VER    CHR version (default: $CHR_VERSION)"
-    echo "  --password PASS  Admin password (default: $ADMIN_PASSWORD)"
+    echo "  --password PASS  Admin password (auto-generated)"
     echo "  -h, --help       Show help"
     echo ""
     echo "Examples:"
@@ -87,7 +101,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --password)
-            ADMIN_PASSWORD="$2"
+            ADMIN_PASSWORD=$(sanitize_input "$2")
             shift 2
             ;;
         -h|--help)
@@ -99,6 +113,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ============================================
+# PASSWORD GENERATION (if not specified)
+# ============================================
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+    ADMIN_PASSWORD=$(generate_password 16)
+    log_info "Generated admin password: $ADMIN_PASSWORD"
+fi
 
 # ============================================
 # ROOT CHECK
@@ -308,6 +330,11 @@ else
 /ip route add gateway=${GATEWAY}
 /user set 0 name=admin password=${ADMIN_PASSWORD}
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
+
+# ============================================
+# SECURITY - REMOVE AUTORUN AFTER EXECUTION
+# ============================================
+/file remove [find name~"autorun"]
 EOF
     
     # Sync filesystem before unmounting
@@ -419,6 +446,7 @@ if [[ "$SKIP_AUTORUN" == true ]]; then
 fi
 
 echo "CHR will be available at: ${ADDRESS%/*}"
+echo "Admin password: ${ADMIN_PASSWORD}"
 echo ""
 
 if [[ "$AUTO_YES" == true && "$AUTO_REBOOT" == true ]]; then

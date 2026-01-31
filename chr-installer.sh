@@ -14,6 +14,20 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_debug() { echo -e "${CYAN}[DEBUG]${NC} $1"; }
 
 # ============================================
+# ГЕНЕРАЦИЯ ПАРОЛЕЙ И САНИТИЗАЦИЯ
+# ============================================
+generate_password() {
+    local length=$1
+    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length"
+}
+
+sanitize_input() {
+    local input="$1"
+    # Удаляем опасные символы: ; " ' ` $ \ / и переносы строк
+    echo "$input" | tr -d ';"'\''`$\\/\n\r' | head -c 64
+}
+
+# ============================================
 # КОНФИГУРАЦИЯ
 # ============================================
 CHR_VERSION="7.16.1"
@@ -23,8 +37,8 @@ CHR_IMG="chr-${CHR_VERSION}.img"
 WORK_DIR="/tmp/chr-install"
 MOUNT_POINT="/mnt/chr"
 
-# Настройки CHR
-ADMIN_PASSWORD="PASSWORD"
+# Настройки CHR (пароль генерируется автоматически если не указан)
+ADMIN_PASSWORD=""
 DNS_SERVERS="8.8.8.8,8.8.4.4"
 
 # Флаги
@@ -47,7 +61,7 @@ usage() {
     echo "  --yes, -y        Без подтверждений (автоматический режим)"
     echo "  --reboot         Автоматическая перезагрузка (требует --yes)"
     echo "  --version VER    Версия CHR (по умолчанию: $CHR_VERSION)"
-    echo "  --password PASS  Пароль admin (по умолчанию: $ADMIN_PASSWORD)"
+    echo "  --password PASS  Пароль admin (генерируется автоматически)"
     echo "  -h, --help       Показать справку"
     echo ""
     echo "Примеры:"
@@ -87,7 +101,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --password)
-            ADMIN_PASSWORD="$2"
+            ADMIN_PASSWORD=$(sanitize_input "$2")
             shift 2
             ;;
         -h|--help)
@@ -99,6 +113,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ============================================
+# ГЕНЕРАЦИЯ ПАРОЛЯ (если не задан)
+# ============================================
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+    ADMIN_PASSWORD=$(generate_password 16)
+    log_info "Сгенерирован пароль admin: $ADMIN_PASSWORD"
+fi
 
 # ============================================
 # ПРОВЕРКА ROOT
@@ -308,6 +330,11 @@ else
 /ip route add gateway=${GATEWAY}
 /user set 0 name=admin password=${ADMIN_PASSWORD}
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
+
+# ============================================
+# БЕЗОПАСНОСТЬ - УДАЛЕНИЕ AUTORUN ПОСЛЕ ВЫПОЛНЕНИЯ
+# ============================================
+/file remove [find name~"autorun"]
 EOF
     
     # Синхронизация ФС перед размонтированием
@@ -419,6 +446,7 @@ if [[ "$SKIP_AUTORUN" == true ]]; then
 fi
 
 echo "CHR будет доступен: ${ADDRESS%/*}"
+echo "Admin пароль:  ${ADMIN_PASSWORD}"
 echo ""
 
 if [[ "$AUTO_YES" == true && "$AUTO_REBOOT" == true ]]; then

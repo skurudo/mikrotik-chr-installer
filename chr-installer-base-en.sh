@@ -14,6 +14,20 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_debug() { echo -e "${CYAN}[DEBUG]${NC} $1"; }
 
 # ============================================
+# PASSWORD GENERATION AND SANITIZATION
+# ============================================
+generate_password() {
+    local length=$1
+    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length"
+}
+
+sanitize_input() {
+    local input="$1"
+    # Remove dangerous characters: ; " ' ` $ \ / and newlines
+    echo "$input" | tr -d ';"'\''`$\\/\n\r' | head -c 64
+}
+
+# ============================================
 # CONFIGURATION
 # ============================================
 CHR_VERSION="7.16.1"
@@ -23,8 +37,8 @@ CHR_IMG="chr-${CHR_VERSION}.img"
 WORK_DIR="/tmp/chr-install"
 MOUNT_POINT="/mnt/chr"
 
-# CHR Settings
-ADMIN_PASSWORD="PASSWORD"
+# CHR Settings (password auto-generated if not specified)
+ADMIN_PASSWORD=""
 DNS_SERVERS="8.8.8.8,8.8.4.4"
 ROUTER_NAME="MikroTik-CHR"
 TIMEZONE="Europe/Moscow"
@@ -52,7 +66,7 @@ usage() {
     echo "  --yes, -y        No confirmations (automatic mode)"
     echo "  --reboot         Automatic reboot (requires --yes)"
     echo "  --version VER    CHR version (default: $CHR_VERSION)"
-    echo "  --password PASS  Admin password (default: $ADMIN_PASSWORD)"
+    echo "  --password PASS  Admin password (auto-generated)"
     echo "  --name NAME      Router name (default: $ROUTER_NAME)"
     echo "  --timezone TZ    Timezone (default: $TIMEZONE)"
     echo "  --dns SERVERS    DNS servers (default: $DNS_SERVERS)"
@@ -87,19 +101,19 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --password)
-            ADMIN_PASSWORD="$2"
+            ADMIN_PASSWORD=$(sanitize_input "$2")
             shift 2
             ;;
         --name)
-            ROUTER_NAME="$2"
+            ROUTER_NAME=$(sanitize_input "$2")
             shift 2
             ;;
         --timezone)
-            TIMEZONE="$2"
+            TIMEZONE=$(sanitize_input "$2")
             shift 2
             ;;
         --dns)
-            DNS_SERVERS="$2"
+            DNS_SERVERS=$(sanitize_input "$2")
             shift 2
             ;;
         -h|--help)
@@ -111,6 +125,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ============================================
+# PASSWORD GENERATION (if not specified)
+# ============================================
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+    ADMIN_PASSWORD=$(generate_password 16)
+    log_info "Generated admin password: $ADMIN_PASSWORD"
+fi
 
 # ============================================
 # ROOT CHECK
@@ -319,9 +341,15 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip service set winbox disabled=no
 
 # ============================================
-# FIREWALL - SSH BRUTE-FORCE PROTECTION
+# FIREWALL - BASIC RULES (first for performance)
 # ============================================
 /ip firewall filter
+add chain=input connection-state=established,related action=accept comment="Accept established connections"
+add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
+
+# ============================================
+# FIREWALL - SSH BRUTE-FORCE PROTECTION
+# ============================================
 add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
 add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
 add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
@@ -349,10 +377,8 @@ add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS 
 add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP queries"
 
 # ============================================
-# FIREWALL - BASIC RULES
+# FIREWALL - ALLOWED SERVICES
 # ============================================
-add chain=input connection-state=established,related action=accept comment="Accept established connections"
-add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
 add chain=input protocol=icmp action=accept comment="Accept ICMP (ping)"
 add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
 add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
@@ -375,6 +401,11 @@ add chain=input action=drop comment="Drop all other input"
 # NAT - MASQUERADE
 # ============================================
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
+
+# ============================================
+# SECURITY - REMOVE AUTORUN AFTER EXECUTION
+# ============================================
+/file remove [find name~"autorun"]
 EOF
 
 sync
@@ -467,6 +498,7 @@ log_info "CHR installation with basic config completed!"
 log_info "=========================================="
 echo ""
 echo "CHR will be available at: ${ADDRESS%/*}"
+echo "Admin password: ${ADMIN_PASSWORD}"
 echo ""
 echo -e "${GREEN}Configured:${NC}"
 echo "  • Router name: $ROUTER_NAME"

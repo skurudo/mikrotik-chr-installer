@@ -14,6 +14,20 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_debug() { echo -e "${CYAN}[DEBUG]${NC} $1"; }
 
 # ============================================
+# ГЕНЕРАЦИЯ ПАРОЛЕЙ И САНИТИЗАЦИЯ
+# ============================================
+generate_password() {
+    local length=$1
+    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length"
+}
+
+sanitize_input() {
+    local input="$1"
+    # Удаляем опасные символы: ; " ' ` $ \ / и переносы строк
+    echo "$input" | tr -d ';"'\''`$\\/\n\r' | head -c 64
+}
+
+# ============================================
 # КОНФИГУРАЦИЯ
 # ============================================
 CHR_VERSION="7.16.1"
@@ -23,8 +37,8 @@ CHR_IMG="chr-${CHR_VERSION}.img"
 WORK_DIR="/tmp/chr-install"
 MOUNT_POINT="/mnt/chr"
 
-# Настройки CHR
-ADMIN_PASSWORD="PASSWORD"
+# Настройки CHR (пароль генерируется автоматически если не указан)
+ADMIN_PASSWORD=""
 DNS_SERVERS="8.8.8.8,8.8.4.4"
 ROUTER_NAME="MikroTik-CHR"
 TIMEZONE="Europe/Moscow"
@@ -52,7 +66,7 @@ usage() {
     echo "  --yes, -y        Без подтверждений (автоматический режим)"
     echo "  --reboot         Автоматическая перезагрузка (требует --yes)"
     echo "  --version VER    Версия CHR (по умолчанию: $CHR_VERSION)"
-    echo "  --password PASS  Пароль admin (по умолчанию: $ADMIN_PASSWORD)"
+    echo "  --password PASS  Пароль admin (генерируется автоматически)"
     echo "  --name NAME      Имя роутера (по умолчанию: $ROUTER_NAME)"
     echo "  --timezone TZ    Часовой пояс (по умолчанию: $TIMEZONE)"
     echo "  --dns SERVERS    DNS серверы (по умолчанию: $DNS_SERVERS)"
@@ -87,19 +101,19 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --password)
-            ADMIN_PASSWORD="$2"
+            ADMIN_PASSWORD=$(sanitize_input "$2")
             shift 2
             ;;
         --name)
-            ROUTER_NAME="$2"
+            ROUTER_NAME=$(sanitize_input "$2")
             shift 2
             ;;
         --timezone)
-            TIMEZONE="$2"
+            TIMEZONE=$(sanitize_input "$2")
             shift 2
             ;;
         --dns)
-            DNS_SERVERS="$2"
+            DNS_SERVERS=$(sanitize_input "$2")
             shift 2
             ;;
         -h|--help)
@@ -111,6 +125,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ============================================
+# ГЕНЕРАЦИЯ ПАРОЛЯ (если не задан)
+# ============================================
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+    ADMIN_PASSWORD=$(generate_password 16)
+    log_info "Сгенерирован пароль admin: $ADMIN_PASSWORD"
+fi
 
 # ============================================
 # ПРОВЕРКА ROOT
@@ -319,9 +341,15 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip service set winbox disabled=no
 
 # ============================================
-# ФАЙРВОЛ - ЗАЩИТА ОТ БРУТФОРСА SSH
+# ФАЙРВОЛ - БАЗОВЫЕ ПРАВИЛА (в начале для производительности)
 # ============================================
 /ip firewall filter
+add chain=input connection-state=established,related action=accept comment="Accept established connections"
+add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
+
+# ============================================
+# ФАЙРВОЛ - ЗАЩИТА ОТ БРУТФОРСА SSH
+# ============================================
 add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
 add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
 add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
@@ -349,10 +377,8 @@ add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS 
 add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP queries"
 
 # ============================================
-# ФАЙРВОЛ - БАЗОВЫЕ ПРАВИЛА
+# ФАЙРВОЛ - РАЗРЕШЁННЫЕ СЕРВИСЫ
 # ============================================
-add chain=input connection-state=established,related action=accept comment="Accept established connections"
-add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
 add chain=input protocol=icmp action=accept comment="Accept ICMP (ping)"
 add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
 add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
@@ -375,6 +401,11 @@ add chain=input action=drop comment="Drop all other input"
 # NAT - MASQUERADE
 # ============================================
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
+
+# ============================================
+# БЕЗОПАСНОСТЬ - УДАЛЕНИЕ AUTORUN ПОСЛЕ ВЫПОЛНЕНИЯ
+# ============================================
+/file remove [find name~"autorun"]
 EOF
 
 sync
@@ -467,6 +498,7 @@ log_info "Установка CHR с базовой настройкой заве
 log_info "=========================================="
 echo ""
 echo "CHR будет доступен: ${ADDRESS%/*}"
+echo "Admin пароль:  ${ADMIN_PASSWORD}"
 echo ""
 echo -e "${GREEN}Настроено:${NC}"
 echo "  • Имя роутера: $ROUTER_NAME"

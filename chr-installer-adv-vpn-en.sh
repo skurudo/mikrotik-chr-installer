@@ -28,6 +28,15 @@ generate_wireguard_key() {
 }
 
 # ============================================
+# INPUT SANITIZATION
+# ============================================
+sanitize_input() {
+    local input="$1"
+    # Remove dangerous characters: ; " ' ` $ \ / and newlines
+    echo "$input" | tr -d ';"'\''`$\\/\n\r' | head -c 64
+}
+
+# ============================================
 # CONFIGURATION
 # ============================================
 CHR_VERSION="7.16.1"
@@ -37,8 +46,8 @@ CHR_IMG="chr-${CHR_VERSION}.img"
 WORK_DIR="/tmp/chr-install"
 MOUNT_POINT="/mnt/chr"
 
-# CHR Settings
-ADMIN_PASSWORD="PASSWORD"
+# CHR Settings (password auto-generated if not specified)
+ADMIN_PASSWORD=""
 DNS_SERVERS="8.8.8.8,8.8.4.4"
 ROUTER_NAME="MikroTik-VPN"
 TIMEZONE="Europe/Moscow"
@@ -56,7 +65,7 @@ WG_SERVER_PRIVATE_KEY=""
 WG_NETWORK="10.10.20.0/24"
 OVPN_PORT="1194"
 OVPN_TCP_PORT="1195"
-SSTP_PORT="443"
+SSTP_PORT="8443"
 
 # Flags
 FORCE_DOWNLOAD=false
@@ -72,7 +81,7 @@ usage() {
     echo "CHR installation script as VPN server with all protocols:"
     echo "  - PPTP (port 1723)"
     echo "  - L2TP/IPsec (port 1701, UDP 500/4500)"
-    echo "  - SSTP (port 443)"
+    echo "  - SSTP (port 8443)"
     echo "  - OpenVPN (port 1194 UDP/TCP, 1195 TCP)"
     echo "  - WireGuard (port 51820)"
     echo ""
@@ -81,7 +90,7 @@ usage() {
     echo "  --yes, -y        No confirmations (automatic mode)"
     echo "  --reboot         Automatic reboot (requires --yes)"
     echo "  --version VER    CHR version (default: $CHR_VERSION)"
-    echo "  --password PASS  Admin password (default: $ADMIN_PASSWORD)"
+    echo "  --password PASS  Admin password (auto-generated)"
     echo "  --name NAME      Router name (default: $ROUTER_NAME)"
     echo "  --timezone TZ    Timezone (default: $TIMEZONE)"
     echo "  --dns SERVERS    DNS servers (default: $DNS_SERVERS)"
@@ -121,35 +130,35 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --password)
-            ADMIN_PASSWORD="$2"
+            ADMIN_PASSWORD=$(sanitize_input "$2")
             shift 2
             ;;
         --name)
-            ROUTER_NAME="$2"
+            ROUTER_NAME=$(sanitize_input "$2")
             shift 2
             ;;
         --timezone)
-            TIMEZONE="$2"
+            TIMEZONE=$(sanitize_input "$2")
             shift 2
             ;;
         --dns)
-            DNS_SERVERS="$2"
+            DNS_SERVERS=$(sanitize_input "$2")
             shift 2
             ;;
         --vpn-user)
-            VPN_USER="$2"
+            VPN_USER=$(sanitize_input "$2")
             shift 2
             ;;
         --vpn-pass)
-            VPN_USER_PASSWORD="$2"
+            VPN_USER_PASSWORD=$(sanitize_input "$2")
             shift 2
             ;;
         --vpn-pool)
-            VPN_POOL="$2"
+            VPN_POOL=$(sanitize_input "$2")
             shift 2
             ;;
         --ipsec-secret)
-            IPSEC_SECRET="$2"
+            IPSEC_SECRET=$(sanitize_input "$2")
             shift 2
             ;;
         --wg-port)
@@ -170,6 +179,11 @@ done
 # KEY GENERATION (if not specified)
 # ============================================
 log_info "Generating keys and passwords..."
+
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+    ADMIN_PASSWORD=$(generate_password 16)
+    log_info "Generated admin password: $ADMIN_PASSWORD"
+fi
 
 if [[ -z "$VPN_USER_PASSWORD" ]]; then
     VPN_USER_PASSWORD=$(generate_password 16)
@@ -401,6 +415,12 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ppp profile add name=vpn-profile local-address=${VPN_LOCAL_IP} remote-address=vpn-pool dns-server=${DNS_SERVERS} use-encryption=yes
 
 # ============================================
+# VPN - OPENVPN PUSH ROUTES
+# ============================================
+# Default route through VPN (all traffic)
+/ppp profile set vpn-profile push-routes="0.0.0.0/0 ${VPN_LOCAL_IP}"
+
+# ============================================
 # VPN - USER
 # ============================================
 /ppp secret add name=${VPN_USER} password=${VPN_USER_PASSWORD} profile=vpn-profile service=any
@@ -459,9 +479,15 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip firewall nat add chain=dstnat protocol=tcp dst-port=${OVPN_TCP_PORT} action=redirect to-ports=${OVPN_PORT} comment="Redirect OpenVPN TCP alt port to main"
 
 # ============================================
-# FIREWALL - SSH BRUTE-FORCE PROTECTION
+# FIREWALL - BASIC RULES (first for performance)
 # ============================================
 /ip firewall filter
+add chain=input connection-state=established,related action=accept comment="Accept established connections"
+add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
+
+# ============================================
+# FIREWALL - SSH BRUTE-FORCE PROTECTION
+# ============================================
 add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
 add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
 add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
@@ -486,10 +512,8 @@ add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS 
 add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP queries"
 
 # ============================================
-# FIREWALL - BASIC RULES
+# FIREWALL - ALLOWED SERVICES
 # ============================================
-add chain=input connection-state=established,related action=accept comment="Accept established connections"
-add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
 add chain=input protocol=icmp action=accept comment="Accept ICMP (ping)"
 add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
 add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
@@ -543,6 +567,11 @@ add chain=forward action=drop comment="Drop all other forward"
 # NAT - MASQUERADE FOR ALL OUTGOING TRAFFIC
 # ============================================
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
+
+# ============================================
+# SECURITY - REMOVE AUTORUN AFTER EXECUTION
+# ============================================
+/file remove [find name~"autorun"]
 EOF
 
 sync
@@ -651,6 +680,7 @@ echo -e "${GREEN}        SAVE THIS INFORMATION!${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo ""
 echo "Server:        ${SERVER_IP}"
+echo "Admin password: ${ADMIN_PASSWORD}"
 echo ""
 echo "PPTP/L2TP/SSTP/OpenVPN:"
 echo "  Username:    ${VPN_USER}"
