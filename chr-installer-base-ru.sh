@@ -26,11 +26,11 @@ MOUNT_POINT="/mnt/chr"
 # Настройки CHR
 ADMIN_PASSWORD="PASSWORD"
 DNS_SERVERS="8.8.8.8,8.8.4.4"
+ROUTER_NAME="MikroTik-CHR"
+TIMEZONE="Europe/Moscow"
 
 # Флаги
-SKIP_AUTORUN=false
 FORCE_DOWNLOAD=false
-VERIFY_WRITE=true
 AUTO_YES=false
 AUTO_REBOOT=false
 
@@ -40,35 +40,35 @@ AUTO_REBOOT=false
 usage() {
     echo "Использование: $0 [опции]"
     echo ""
+    echo "Скрипт установки CHR с базовой настройкой безопасности:"
+    echo "  - Файрвол с защитой от брутфорса SSH/WinBox"
+    echo "  - Защита от DNS amplification атак"
+    echo "  - Отключение небезопасных сервисов"
+    echo "  - Настройка NTP и часового пояса"
+    echo "  - Ежедневный автобэкап конфигурации"
+    echo ""
     echo "Опции:"
-    echo "  --clean          Чистая установка без autorun.scr"
     echo "  --force          Принудительно скачать образ заново"
-    echo "  --no-verify      Пропустить верификацию записи"
     echo "  --yes, -y        Без подтверждений (автоматический режим)"
     echo "  --reboot         Автоматическая перезагрузка (требует --yes)"
     echo "  --version VER    Версия CHR (по умолчанию: $CHR_VERSION)"
     echo "  --password PASS  Пароль admin (по умолчанию: $ADMIN_PASSWORD)"
+    echo "  --name NAME      Имя роутера (по умолчанию: $ROUTER_NAME)"
+    echo "  --timezone TZ    Часовой пояс (по умолчанию: $TIMEZONE)"
+    echo "  --dns SERVERS    DNS серверы (по умолчанию: $DNS_SERVERS)"
     echo "  -h, --help       Показать справку"
     echo ""
     echo "Примеры:"
-    echo "  $0 --clean                    # Чистая установка с подтверждением"
-    echo "  $0 --yes --reboot             # Полностью автоматическая установка"
-    echo "  $0 -y --clean --reboot        # Автоматическая чистая установка"
+    echo "  $0 --yes --reboot                           # Автоустановка с базовой настройкой"
+    echo "  $0 --password MyPass123 --name VPN-Server   # Кастомный пароль и имя"
+    echo "  $0 --timezone America/New_York              # Другой часовой пояс"
     exit 0
 }
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --clean)
-            SKIP_AUTORUN=true
-            shift
-            ;;
         --force)
             FORCE_DOWNLOAD=true
-            shift
-            ;;
-        --no-verify)
-            VERIFY_WRITE=false
             shift
             ;;
         --yes|-y)
@@ -88,6 +88,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --password)
             ADMIN_PASSWORD="$2"
+            shift 2
+            ;;
+        --name)
+            ROUTER_NAME="$2"
+            shift 2
+            ;;
+        --timezone)
+            TIMEZONE="$2"
+            shift 2
+            ;;
+        --dns)
+            DNS_SERVERS="$2"
             shift 2
             ;;
         -h|--help)
@@ -188,7 +200,7 @@ else
 fi
 
 # ============================================
-# ВАЛИДАЦИЯ ОБРАЗА (РАСШИРЕННАЯ)
+# ВАЛИДАЦИЯ ОБРАЗА
 # ============================================
 log_info "Валидация образа..."
 
@@ -201,7 +213,7 @@ fi
 IMG_SIZE=$(stat -c%s "$CHR_IMG")
 log_debug "Размер образа: $IMG_SIZE байт ($(( IMG_SIZE / 1024 / 1024 )) MB)"
 
-# Проверка MBR сигнатуры (последние 2 байта первого сектора = 55 AA)
+# Проверка MBR сигнатуры
 MBR_SIG=$(xxd -s 510 -l 2 -p "$CHR_IMG")
 if [[ "$MBR_SIG" != "55aa" ]]; then
     log_error "Неверная MBR сигнатура: $MBR_SIG (ожидается 55aa)"
@@ -209,13 +221,8 @@ if [[ "$MBR_SIG" != "55aa" ]]; then
 fi
 log_debug "MBR сигнатура: OK (55aa)"
 
-# Сохраняем MD5 оригинального образа
 ORIGINAL_MD5=$(md5sum "$CHR_IMG" | awk '{print $1}')
 log_info "MD5 оригинального образа: $ORIGINAL_MD5"
-
-# Проверка таблицы разделов
-log_debug "Таблица разделов:"
-fdisk -l "$CHR_IMG" 2>/dev/null | grep -E "^(Disk|Device|${CHR_IMG})" || true
 
 log_info "Образ прошёл валидацию ✓"
 
@@ -256,100 +263,149 @@ DISK_SIZE=$(lsblk -ndo SIZE "$DISK_DEVICE")
 log_warn "Целевой диск: $DISK_DEVICE ($DISK_SIZE)"
 
 # ============================================
-# ВЫБОР ОБРАЗА ДЛЯ ЗАПИСИ
+# СОЗДАНИЕ AUTORUN С БАЗОВОЙ НАСТРОЙКОЙ
 # ============================================
-FINAL_IMG="$CHR_IMG"
+log_info "Создание autorun.scr с базовой настройкой безопасности..."
 
-if [[ "$SKIP_AUTORUN" == true ]]; then
-    log_warn "Режим --clean: autorun.scr НЕ будет создан"
-    log_warn "Настройка CHR вручную после загрузки"
+CHR_IMG_MOD="${CHR_IMG}.modified"
+cp "$CHR_IMG" "$CHR_IMG_MOD"
+
+mkdir -p "$MOUNT_POINT"
+
+OFFSET_SECTORS=$(fdisk -l "$CHR_IMG_MOD" 2>/dev/null | grep "${CHR_IMG_MOD}2" | awk '{print $2}')
+if [[ -z "$OFFSET_SECTORS" ]]; then
+    OFFSET_BYTES=33571840
 else
-    log_info "Создание autorun.scr..."
-    
-    # Создаём копию образа для модификации
-    CHR_IMG_MOD="${CHR_IMG}.modified"
-    cp "$CHR_IMG" "$CHR_IMG_MOD"
-    
-    # Монтирование
-    mkdir -p "$MOUNT_POINT"
-    
-    OFFSET_SECTORS=$(fdisk -l "$CHR_IMG_MOD" 2>/dev/null | grep "${CHR_IMG_MOD}2" | awk '{print $2}')
-    if [[ -z "$OFFSET_SECTORS" ]]; then
-        OFFSET_BYTES=33571840
-    else
-        OFFSET_BYTES=$((OFFSET_SECTORS * 512))
-    fi
-    
-    log_debug "Монтирование с offset: $OFFSET_BYTES"
-    
-    mount -o loop,offset="$OFFSET_BYTES" "$CHR_IMG_MOD" "$MOUNT_POINT"
-    
-    # Проверяем структуру
-    log_debug "Содержимое смонтированного раздела:"
-    ls -la "$MOUNT_POINT/" || true
-    
-    if [[ ! -d "$MOUNT_POINT/rw" ]]; then
-        log_warn "Директория /rw не существует, создаём..."
-        mkdir -p "$MOUNT_POINT/rw"
-    fi
-    
-    # Создание autorun
-    cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
+    OFFSET_BYTES=$((OFFSET_SECTORS * 512))
+fi
+
+log_debug "Монтирование с offset: $OFFSET_BYTES"
+
+mount -o loop,offset="$OFFSET_BYTES" "$CHR_IMG_MOD" "$MOUNT_POINT"
+
+if [[ ! -d "$MOUNT_POINT/rw" ]]; then
+    log_warn "Директория /rw не существует, создаём..."
+    mkdir -p "$MOUNT_POINT/rw"
+fi
+
+# Создание расширенного autorun с базовой настройкой
+cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
+# ============================================
+# БАЗОВАЯ НАСТРОЙКА - СЕТЬ
+# ============================================
 /ip dns set servers=${DNS_SERVERS}
-/ip service set telnet disabled=yes
-/ip service set ftp disabled=yes
-/ip service set www disabled=yes
-/ip service set ssh disabled=no
-/ip service set api disabled=yes
-/ip service set api-ssl disabled=yes
-/ip service set winbox disabled=no
 /ip dhcp-client remove [find]
 /ip address add address=${ADDRESS} interface=[/interface ethernet find where name=ether1]
 /ip route add gateway=${GATEWAY}
+
+# ============================================
+# ПОЛЬЗОВАТЕЛЬ И СИСТЕМА
+# ============================================
 /user set 0 name=admin password=${ADMIN_PASSWORD}
+/system identity set name=${ROUTER_NAME}
+/system clock set time-zone-name=${TIMEZONE}
+/system ntp client set enabled=yes
+/system ntp client servers add address=pool.ntp.org
+
+# ============================================
+# СЕРВИСЫ - ОТКЛЮЧАЕМ НЕБЕЗОПАСНЫЕ
+# ============================================
+/ip service set telnet disabled=yes
+/ip service set ftp disabled=yes
+/ip service set www disabled=yes
+/ip service set api disabled=yes
+/ip service set api-ssl disabled=yes
+/ip service set ssh disabled=no port=22
+/ip service set winbox disabled=no
+
+# ============================================
+# ФАЙРВОЛ - ЗАЩИТА ОТ БРУТФОРСА SSH
+# ============================================
+/ip firewall filter
+add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
+
+# ============================================
+# ФАЙРВОЛ - ЗАЩИТА ОТ БРУТФОРСА WINBOX
+# ============================================
+add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
+add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
+add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
+
+# ============================================
+# ФАЙРВОЛ - ЗАЩИТА ОТ DNS AMPLIFICATION
+# ============================================
+# Отключаем DNS сервер для внешних запросов
+/ip dns set allow-remote-requests=no
+
+# Блокируем входящие DNS запросы извне (защита от использования как DNS reflector)
+/ip firewall filter
+add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS queries (anti-amplification)"
+add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP queries"
+
+# ============================================
+# ФАЙРВОЛ - БАЗОВЫЕ ПРАВИЛА
+# ============================================
+add chain=input connection-state=established,related action=accept comment="Accept established connections"
+add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
+add chain=input protocol=icmp action=accept comment="Accept ICMP (ping)"
+add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
+add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
+add chain=input action=drop comment="Drop all other input"
+
+# ============================================
+# АВТОБЭКАП КОНФИГУРАЦИИ
+# ============================================
+/system script add name=backup-script source="/system backup save name=auto-backup"
+/system scheduler add name=daily-backup interval=1d on-event=backup-script start-time=03:00:00
+
+# ============================================
+# ЛОГИРОВАНИЕ
+# ============================================
+/system logging add topics=firewall action=memory
+/system logging add topics=error action=memory
+/system logging add topics=warning action=memory
+
+# ============================================
+# NAT - MASQUERADE
+# ============================================
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
 EOF
-    
-    # Синхронизация ФС перед размонтированием
-    sync
-    
-    log_debug "autorun.scr создан:"
-    cat "$MOUNT_POINT/rw/autorun.scr"
-    
-    # Проверяем что файл записался
-    if [[ ! -s "$MOUNT_POINT/rw/autorun.scr" ]]; then
-        log_error "autorun.scr пустой или не создан!"
-        umount "$MOUNT_POINT"
-        exit 1
-    fi
-    
-    # Размонтирование с sync
-    sync
+
+sync
+
+log_debug "autorun.scr создан:"
+cat "$MOUNT_POINT/rw/autorun.scr"
+
+if [[ ! -s "$MOUNT_POINT/rw/autorun.scr" ]]; then
+    log_error "autorun.scr пустой или не создан!"
     umount "$MOUNT_POINT"
-    sync
-    
-    # Проверка MD5 после модификации
-    MODIFIED_MD5=$(md5sum "$CHR_IMG_MOD" | awk '{print $1}')
-    log_debug "MD5 после модификации: $MODIFIED_MD5"
-    
-    if [[ "$ORIGINAL_MD5" == "$MODIFIED_MD5" ]]; then
-        log_warn "MD5 не изменился — возможно autorun.scr не записался"
-    fi
-    
-    # Проверка MBR после модификации
-    MBR_SIG_MOD=$(xxd -s 510 -l 2 -p "$CHR_IMG_MOD")
-    if [[ "$MBR_SIG_MOD" != "55aa" ]]; then
-        log_error "MBR повреждён после модификации! Сигнатура: $MBR_SIG_MOD"
-        log_error "Используем оригинальный образ без autorun"
-        rm -f "$CHR_IMG_MOD"
-        SKIP_AUTORUN=true
-        FINAL_IMG="$CHR_IMG"
-    else
-        log_debug "MBR после модификации: OK"
-        FINAL_IMG="$CHR_IMG_MOD"
-        log_info "Autorun настроен ✓"
-    fi
+    exit 1
 fi
+
+sync
+umount "$MOUNT_POINT"
+sync
+
+# Проверка MD5 после модификации
+MODIFIED_MD5=$(md5sum "$CHR_IMG_MOD" | awk '{print $1}')
+log_debug "MD5 после модификации: $MODIFIED_MD5"
+
+# Проверка MBR после модификации
+MBR_SIG_MOD=$(xxd -s 510 -l 2 -p "$CHR_IMG_MOD")
+if [[ "$MBR_SIG_MOD" != "55aa" ]]; then
+    log_error "MBR повреждён после модификации! Сигнатура: $MBR_SIG_MOD"
+    exit 1
+fi
+
+log_debug "MBR после модификации: OK"
+FINAL_IMG="$CHR_IMG_MOD"
+log_info "Базовая настройка подготовлена ✓"
 
 # ============================================
 # ФИНАЛЬНОЕ ПОДТВЕРЖДЕНИЕ
@@ -359,11 +415,20 @@ echo "============================================"
 echo -e "${YELLOW}        ТОЧКА НЕВОЗВРАТА!${NC}"
 echo "============================================"
 echo ""
-echo "Образ:   $FINAL_IMG"
-echo "Диск:    $DISK_DEVICE ($DISK_SIZE)"
-echo "IP:      $ADDRESS"
-echo "Шлюз:    $GATEWAY"
-echo "Autorun: $(if [[ "$SKIP_AUTORUN" == true ]]; then echo "ОТКЛЮЧЕН"; else echo "включен"; fi)"
+echo "Образ:      $FINAL_IMG"
+echo "Диск:       $DISK_DEVICE ($DISK_SIZE)"
+echo "IP:         $ADDRESS"
+echo "Шлюз:       $GATEWAY"
+echo "Имя:        $ROUTER_NAME"
+echo "Часовой пояс: $TIMEZONE"
+echo ""
+echo -e "${GREEN}Базовая настройка включает:${NC}"
+echo "  ✓ Файрвол с защитой от брутфорса (SSH, WinBox)"
+echo "  ✓ Защита от DNS amplification атак"
+echo "  ✓ Отключение небезопасных сервисов"
+echo "  ✓ Настройка NTP (pool.ntp.org)"
+echo "  ✓ Ежедневный автобэкап (03:00)"
+echo "  ✓ Логирование firewall/error/warning"
 echo ""
 echo -e "${RED}ВСЕ ДАННЫЕ НА $DISK_DEVICE БУДУТ УНИЧТОЖЕНЫ!${NC}"
 echo ""
@@ -383,7 +448,6 @@ fi
 # ============================================
 log_info "Запись образа на $DISK_DEVICE..."
 
-# Переводим FS в read-only чтобы избежать race condition
 log_info "Перевод файловой системы в read-only..."
 sync
 echo 1 > /proc/sys/kernel/sysrq
@@ -393,32 +457,23 @@ sleep 2
 dd if="$FINAL_IMG" of="$DISK_DEVICE" bs=4M oflag=direct status=progress
 
 log_info "Запись завершена"
-# sync не нужен - FS уже в read-only, dd с oflag=direct пишет напрямую
-
-# ============================================
-# ВЕРИФИКАЦИЯ ЗАПИСИ
-# ============================================
-# После echo u файловая система в read-only, верификация невозможна
-# MBR уже проверен до записи, dd с oflag=direct гарантирует запись
-log_info "Верификация пропущена (FS в read-only после remount)"
 
 # ============================================
 # ЗАВЕРШЕНИЕ
 # ============================================
 echo ""
 log_info "=========================================="
-log_info "Установка CHR завершена успешно!"
+log_info "Установка CHR с базовой настройкой завершена!"
 log_info "=========================================="
 echo ""
-
-if [[ "$SKIP_AUTORUN" == true ]]; then
-    echo "После загрузки настрой вручную:"
-    echo "  /ip address add address=$ADDRESS interface=ether1"
-    echo "  /ip route add gateway=$GATEWAY"
-    echo ""
-fi
-
 echo "CHR будет доступен: ${ADDRESS%/*}"
+echo ""
+echo -e "${GREEN}Настроено:${NC}"
+echo "  • Имя роутера: $ROUTER_NAME"
+echo "  • Часовой пояс: $TIMEZONE"
+echo "  • Файрвол с защитой от брутфорса"
+echo "  • Защита от DNS amplification"
+echo "  • Автобэкап каждый день в 03:00"
 echo ""
 
 if [[ "$AUTO_YES" == true && "$AUTO_REBOOT" == true ]]; then

@@ -307,6 +307,7 @@ else
 /ip address add address=${ADDRESS} interface=[/interface ethernet find where name=ether1]
 /ip route add gateway=${GATEWAY}
 /user set 0 name=admin password=${ADMIN_PASSWORD}
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
 EOF
     
     # Sync filesystem before unmounting

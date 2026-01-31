@@ -61,14 +61,14 @@
 ### Установка одной командой
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/YOUR_REPO/mikrotik-chr-installer/main/chr-installer.sh | bash
+wget -qO- https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer.sh | bash
 ```
 
 ### Ручная установка
 
 ```bash
 # Скачать скрипт
-wget https://raw.githubusercontent.com/YOUR_REPO/mikrotik-chr-installer/main/chr-installer.sh
+wget https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer.sh
 
 # Сделать исполняемым
 chmod +x chr-installer.sh
@@ -330,6 +330,85 @@ EOF
 - Подождите 1-2 минуты для полной загрузки CHR
 - Проверьте правильность IP-адреса
 - Проверьте файрвол/security groups хостинг-провайдера
+
+## 📦 Варианты установки
+
+В проекте доступны несколько скриптов для разных сценариев:
+
+### Минимальная установка
+
+| Скрипт | Язык | Описание |
+|--------|------|----------|
+| `chr-installer.sh` | RU | Базовый установщик с автонастройкой сети |
+| `chr-installer-en.sh` | EN | Basic installer with network auto-config |
+
+### С базовой настройкой безопасности
+
+| Скрипт | Язык | Описание |
+|--------|------|----------|
+| `chr-installer-base-ru.sh` | RU | + Файрвол, защита от брутфорса, NTP, автобэкап |
+| `chr-installer-base-en.sh` | EN | + Firewall, brute-force protection, NTP, auto-backup |
+
+**Включает:**
+- Защита от брутфорса SSH/WinBox
+- Защита от DNS amplification атак
+- Отключение небезопасных сервисов
+- Настройка NTP и часового пояса
+- Ежедневный автобэкап
+
+### VPN-сервер (все протоколы)
+
+| Скрипт | Язык | Описание |
+|--------|------|----------|
+| `chr-installer-adv-vpn-ru.sh` | RU | Полноценный VPN-сервер |
+| `chr-installer-adv-vpn-en.sh` | EN | Full-featured VPN server |
+
+**Включает все протоколы:**
+- PPTP (порт 1723)
+- L2TP/IPsec (порт 1701, UDP 500/4500) — автогенерация 12-символьного PSK
+- SSTP (порт 443) — автоматический самоподписанный сертификат
+- OpenVPN (порт 1194 UDP/TCP, 1195 TCP) — автоматический сертификат
+- WireGuard (порт 51820) — автогенерация ключа сервера
+
+**Дополнительные параметры VPN:**
+```bash
+--vpn-user USER      # VPN пользователь (по умолчанию: vpnuser)
+--vpn-pass PASS      # Пароль VPN (генерируется автоматически)
+--ipsec-secret KEY   # IPsec PSK (генерируется автоматически)
+--wg-port PORT       # WireGuard порт (по умолчанию: 51820)
+```
+
+### 🚀 Быстрая установка одной командой
+
+#### Базовая настройка с безопасностью (RU):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-base-ru.sh) --yes --reboot
+```
+
+#### Базовая настройка с безопасностью (EN):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-base-en.sh) --yes --reboot
+```
+
+#### VPN-сервер со всеми протоколами (RU):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-adv-vpn-ru.sh) --yes --reboot
+```
+
+#### VPN-сервер со всеми протоколами (EN):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-adv-vpn-en.sh) --yes --reboot
+```
+
+#### VPN-сервер с кастомными параметрами:
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-adv-vpn-ru.sh) \
+  --password MyAdminPass \
+  --vpn-user myuser \
+  --vpn-pass MyVPNPass123 \
+  --ipsec-secret MyIPsecKey \
+  --yes --reboot
+```
 
 ## 📄 Лицензия
 

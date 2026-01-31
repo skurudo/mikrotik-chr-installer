@@ -61,14 +61,14 @@ Deploy CHR for:
 ### One-Line Installation
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/YOUR_REPO/mikrotik-chr-installer/main/chr-installer.sh | bash
+wget -qO- https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer.sh | bash
 ```
 
 ### Manual Installation
 
 ```bash
 # Download the script
-wget https://raw.githubusercontent.com/YOUR_REPO/mikrotik-chr-installer/main/chr-installer.sh
+wget https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer.sh
 
 # Make it executable
 chmod +x chr-installer.sh
@@ -330,6 +330,85 @@ EOF
 - Wait 1-2 minutes for CHR to fully boot
 - Verify the IP address is correct
 - Check hosting provider's firewall/security groups
+
+## 📦 Installation Variants
+
+Several scripts are available for different scenarios:
+
+### Minimal Installation
+
+| Script | Language | Description |
+|--------|----------|-------------|
+| `chr-installer.sh` | RU | Basic installer with network auto-config |
+| `chr-installer-en.sh` | EN | Basic installer with network auto-config |
+
+### With Basic Security Configuration
+
+| Script | Language | Description |
+|--------|----------|-------------|
+| `chr-installer-base-ru.sh` | RU | + Firewall, brute-force protection, NTP, auto-backup |
+| `chr-installer-base-en.sh` | EN | + Firewall, brute-force protection, NTP, auto-backup |
+
+**Includes:**
+- SSH/WinBox brute-force protection
+- DNS amplification attack protection
+- Disable insecure services
+- NTP and timezone configuration
+- Daily auto-backup
+
+### VPN Server (All Protocols)
+
+| Script | Language | Description |
+|--------|----------|-------------|
+| `chr-installer-adv-vpn-ru.sh` | RU | Full-featured VPN server |
+| `chr-installer-adv-vpn-en.sh` | EN | Full-featured VPN server |
+
+**Includes all protocols:**
+- PPTP (port 1723)
+- L2TP/IPsec (port 1701, UDP 500/4500) — auto-generated 12-char PSK
+- SSTP (port 443) — auto-generated self-signed certificate
+- OpenVPN (port 1194 UDP/TCP, 1195 TCP) — auto-generated certificate
+- WireGuard (port 51820) — auto-generated server key
+
+**Additional VPN parameters:**
+```bash
+--vpn-user USER      # VPN username (default: vpnuser)
+--vpn-pass PASS      # VPN password (auto-generated)
+--ipsec-secret KEY   # IPsec PSK (auto-generated)
+--wg-port PORT       # WireGuard port (default: 51820)
+```
+
+### 🚀 One-Line Quick Installation
+
+#### Basic setup with security (EN):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-base-en.sh) --yes --reboot
+```
+
+#### Basic setup with security (RU):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-base-ru.sh) --yes --reboot
+```
+
+#### VPN server with all protocols (EN):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-adv-vpn-en.sh) --yes --reboot
+```
+
+#### VPN server with all protocols (RU):
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-adv-vpn-ru.sh) --yes --reboot
+```
+
+#### VPN server with custom parameters:
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/skurudo/mikrotik-chr-installer/main/chr-installer-adv-vpn-en.sh) \
+  --password MyAdminPass \
+  --vpn-user myuser \
+  --vpn-pass MyVPNPass123 \
+  --ipsec-secret MyIPsecKey \
+  --yes --reboot
+```
 
 ## 📄 License
 

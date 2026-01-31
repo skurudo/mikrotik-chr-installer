@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Цвета для вывода
+# Output colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -14,7 +14,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_debug() { echo -e "${CYAN}[DEBUG]${NC} $1"; }
 
 # ============================================
-# КОНФИГУРАЦИЯ
+# CONFIGURATION
 # ============================================
 CHR_VERSION="7.16.1"
 CHR_URL="https://download.mikrotik.com/routeros/${CHR_VERSION}/chr-${CHR_VERSION}.img.zip"
@@ -23,45 +23,45 @@ CHR_IMG="chr-${CHR_VERSION}.img"
 WORK_DIR="/tmp/chr-install"
 MOUNT_POINT="/mnt/chr"
 
-# Настройки CHR
+# CHR Settings
 ADMIN_PASSWORD="PASSWORD"
 DNS_SERVERS="8.8.8.8,8.8.4.4"
 ROUTER_NAME="MikroTik-CHR"
 TIMEZONE="Europe/Moscow"
 
-# Флаги
+# Flags
 FORCE_DOWNLOAD=false
 AUTO_YES=false
 AUTO_REBOOT=false
 
 # ============================================
-# ПАРСИНГ АРГУМЕНТОВ
+# ARGUMENT PARSING
 # ============================================
 usage() {
-    echo "Использование: $0 [опции]"
+    echo "Usage: $0 [options]"
     echo ""
-    echo "Скрипт установки CHR с базовой настройкой безопасности:"
-    echo "  - Файрвол с защитой от брутфорса SSH/WinBox"
-    echo "  - Защита от DNS amplification атак"
-    echo "  - Отключение небезопасных сервисов"
-    echo "  - Настройка NTP и часового пояса"
-    echo "  - Ежедневный автобэкап конфигурации"
+    echo "CHR installation script with basic security configuration:"
+    echo "  - Firewall with SSH/WinBox brute-force protection"
+    echo "  - DNS amplification attack protection"
+    echo "  - Disable insecure services"
+    echo "  - NTP and timezone configuration"
+    echo "  - Daily automatic backup"
     echo ""
-    echo "Опции:"
-    echo "  --force          Принудительно скачать образ заново"
-    echo "  --yes, -y        Без подтверждений (автоматический режим)"
-    echo "  --reboot         Автоматическая перезагрузка (требует --yes)"
-    echo "  --version VER    Версия CHR (по умолчанию: $CHR_VERSION)"
-    echo "  --password PASS  Пароль admin (по умолчанию: $ADMIN_PASSWORD)"
-    echo "  --name NAME      Имя роутера (по умолчанию: $ROUTER_NAME)"
-    echo "  --timezone TZ    Часовой пояс (по умолчанию: $TIMEZONE)"
-    echo "  --dns SERVERS    DNS серверы (по умолчанию: $DNS_SERVERS)"
-    echo "  -h, --help       Показать справку"
+    echo "Options:"
+    echo "  --force          Force re-download the image"
+    echo "  --yes, -y        No confirmations (automatic mode)"
+    echo "  --reboot         Automatic reboot (requires --yes)"
+    echo "  --version VER    CHR version (default: $CHR_VERSION)"
+    echo "  --password PASS  Admin password (default: $ADMIN_PASSWORD)"
+    echo "  --name NAME      Router name (default: $ROUTER_NAME)"
+    echo "  --timezone TZ    Timezone (default: $TIMEZONE)"
+    echo "  --dns SERVERS    DNS servers (default: $DNS_SERVERS)"
+    echo "  -h, --help       Show help"
     echo ""
-    echo "Примеры:"
-    echo "  $0 --yes --reboot                           # Автоустановка с базовой настройкой"
-    echo "  $0 --password MyPass123 --name VPN-Server   # Кастомный пароль и имя"
-    echo "  $0 --timezone America/New_York              # Другой часовой пояс"
+    echo "Examples:"
+    echo "  $0 --yes --reboot                           # Auto-install with basic config"
+    echo "  $0 --password MyPass123 --name VPN-Server   # Custom password and name"
+    echo "  $0 --timezone America/New_York              # Different timezone"
     exit 0
 }
 
@@ -106,24 +106,24 @@ while [[ $# -gt 0 ]]; do
             usage
             ;;
         *)
-            log_error "Неизвестная опция: $1"
+            log_error "Unknown option: $1"
             usage
             ;;
     esac
 done
 
 # ============================================
-# ПРОВЕРКА ROOT
+# ROOT CHECK
 # ============================================
 if [[ $EUID -ne 0 ]]; then
-    log_error "Скрипт должен запускаться от root"
+    log_error "This script must be run as root"
     exit 1
 fi
 
 # ============================================
-# ПРОВЕРКА ЗАВИСИМОСТЕЙ
+# DEPENDENCY CHECK
 # ============================================
-log_info "Проверка зависимостей..."
+log_info "Checking dependencies..."
 
 REQUIRED_TOOLS="wget unzip fdisk dd mount umount file md5sum xxd"
 MISSING_TOOLS=""
@@ -135,8 +135,8 @@ for tool in $REQUIRED_TOOLS; do
 done
 
 if [[ -n "$MISSING_TOOLS" ]]; then
-    log_warn "Отсутствуют утилиты:$MISSING_TOOLS"
-    log_info "Попытка установки..."
+    log_warn "Missing tools:$MISSING_TOOLS"
+    log_info "Attempting to install..."
     
     if command -v apt-get &> /dev/null; then
         apt-get update && apt-get install -y wget unzip fdisk coreutils mount xxd
@@ -145,108 +145,108 @@ if [[ -n "$MISSING_TOOLS" ]]; then
     elif command -v dnf &> /dev/null; then
         dnf install -y wget unzip util-linux coreutils vim-common
     else
-        log_error "Установи вручную:$MISSING_TOOLS"
+        log_error "Please install manually:$MISSING_TOOLS"
         exit 1
     fi
 fi
 
-log_info "Все зависимости в порядке"
+log_info "All dependencies are satisfied"
 
 # ============================================
-# ПОДГОТОВКА РАБОЧЕЙ ДИРЕКТОРИИ
+# WORKING DIRECTORY PREPARATION
 # ============================================
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
 
-log_info "Рабочая директория: $WORK_DIR"
-log_debug "Свободное место: $(df -h "$WORK_DIR" | tail -1 | awk '{print $4}')"
+log_info "Working directory: $WORK_DIR"
+log_debug "Free space: $(df -h "$WORK_DIR" | tail -1 | awk '{print $4}')"
 
 # ============================================
-# СКАЧИВАНИЕ ОБРАЗА
+# IMAGE DOWNLOAD
 # ============================================
 if [[ "$FORCE_DOWNLOAD" == true ]] || [[ ! -f "$CHR_IMG" ]]; then
     rm -f "$CHR_ZIP" "$CHR_IMG" "${CHR_IMG}.modified"
     
-    log_info "Скачивание CHR ${CHR_VERSION}..."
+    log_info "Downloading CHR ${CHR_VERSION}..."
     wget --progress=bar:force -O "$CHR_ZIP" "$CHR_URL"
     
-    # Проверка размера скачанного файла
+    # Check downloaded file size
     ACTUAL_SIZE=$(stat -c%s "$CHR_ZIP")
-    log_debug "Размер скачанного файла: $ACTUAL_SIZE байт"
+    log_debug "Downloaded file size: $ACTUAL_SIZE bytes"
     
     if [[ $ACTUAL_SIZE -lt 30000000 ]]; then
-        log_error "Файл слишком маленький, скачивание неполное"
+        log_error "File too small, download incomplete"
         exit 1
     fi
     
-    # Проверка типа файла
+    # Check file type
     FILE_TYPE=$(file "$CHR_ZIP")
-    log_debug "Тип файла: $FILE_TYPE"
+    log_debug "File type: $FILE_TYPE"
     
     if echo "$FILE_TYPE" | grep -q "Zip archive"; then
-        log_info "Распаковка ZIP..."
+        log_info "Extracting ZIP..."
         unzip -o "$CHR_ZIP"
     elif echo "$FILE_TYPE" | grep -q "gzip"; then
-        log_info "Распаковка GZIP..."
+        log_info "Extracting GZIP..."
         gunzip -c "$CHR_ZIP" > "$CHR_IMG"
     else
-        log_error "Неизвестный формат: $FILE_TYPE"
+        log_error "Unknown format: $FILE_TYPE"
         exit 1
     fi
     
     rm -f "$CHR_ZIP"
 else
-    log_info "Используется существующий образ: $CHR_IMG"
+    log_info "Using existing image: $CHR_IMG"
 fi
 
 # ============================================
-# ВАЛИДАЦИЯ ОБРАЗА
+# IMAGE VALIDATION
 # ============================================
-log_info "Валидация образа..."
+log_info "Validating image..."
 
 if [[ ! -f "$CHR_IMG" ]]; then
-    log_error "Образ не найден!"
+    log_error "Image not found!"
     ls -la "$WORK_DIR"
     exit 1
 fi
 
 IMG_SIZE=$(stat -c%s "$CHR_IMG")
-log_debug "Размер образа: $IMG_SIZE байт ($(( IMG_SIZE / 1024 / 1024 )) MB)"
+log_debug "Image size: $IMG_SIZE bytes ($(( IMG_SIZE / 1024 / 1024 )) MB)"
 
-# Проверка MBR сигнатуры
+# Check MBR signature
 MBR_SIG=$(xxd -s 510 -l 2 -p "$CHR_IMG")
 if [[ "$MBR_SIG" != "55aa" ]]; then
-    log_error "Неверная MBR сигнатура: $MBR_SIG (ожидается 55aa)"
+    log_error "Invalid MBR signature: $MBR_SIG (expected 55aa)"
     exit 1
 fi
-log_debug "MBR сигнатура: OK (55aa)"
+log_debug "MBR signature: OK (55aa)"
 
 ORIGINAL_MD5=$(md5sum "$CHR_IMG" | awk '{print $1}')
-log_info "MD5 оригинального образа: $ORIGINAL_MD5"
+log_info "Original image MD5: $ORIGINAL_MD5"
 
-log_info "Образ прошёл валидацию ✓"
+log_info "Image validation passed ✓"
 
 # ============================================
-# ОПРЕДЕЛЕНИЕ СЕТЕВЫХ ПАРАМЕТРОВ
+# NETWORK PARAMETERS DETECTION
 # ============================================
-log_info "Определение сетевых параметров..."
+log_info "Detecting network parameters..."
 
 INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
 ADDRESS=$(ip addr show "$INTERFACE" 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n1)
 GATEWAY=$(ip route | grep default | awk '{print $3}' | head -n1)
 
 if [[ -z "$INTERFACE" || -z "$ADDRESS" || -z "$GATEWAY" ]]; then
-    log_error "Не удалось определить сетевые параметры"
+    log_error "Failed to detect network parameters"
     log_error "INTERFACE=$INTERFACE ADDRESS=$ADDRESS GATEWAY=$GATEWAY"
     exit 1
 fi
 
-log_info "Интерфейс: $INTERFACE | Адрес: $ADDRESS | Шлюз: $GATEWAY"
+log_info "Interface: $INTERFACE | Address: $ADDRESS | Gateway: $GATEWAY"
 
 # ============================================
-# ОПРЕДЕЛЕНИЕ ДИСКА
+# DISK DETECTION
 # ============================================
-log_info "Определение целевого диска..."
+log_info "Detecting target disk..."
 
 echo ""
 lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -E "(NAME|disk)"
@@ -255,17 +255,17 @@ echo ""
 DISK_DEVICE=$(lsblk -ndo NAME,TYPE | grep disk | head -n1 | awk '{print "/dev/"$1}')
 
 if [[ -z "$DISK_DEVICE" ]]; then
-    log_error "Диск не найден"
+    log_error "Disk not found"
     exit 1
 fi
 
 DISK_SIZE=$(lsblk -ndo SIZE "$DISK_DEVICE")
-log_warn "Целевой диск: $DISK_DEVICE ($DISK_SIZE)"
+log_warn "Target disk: $DISK_DEVICE ($DISK_SIZE)"
 
 # ============================================
-# СОЗДАНИЕ AUTORUN С БАЗОВОЙ НАСТРОЙКОЙ
+# CREATE AUTORUN WITH BASIC CONFIGURATION
 # ============================================
-log_info "Создание autorun.scr с базовой настройкой безопасности..."
+log_info "Creating autorun.scr with basic security configuration..."
 
 CHR_IMG_MOD="${CHR_IMG}.modified"
 cp "$CHR_IMG" "$CHR_IMG_MOD"
@@ -279,19 +279,19 @@ else
     OFFSET_BYTES=$((OFFSET_SECTORS * 512))
 fi
 
-log_debug "Монтирование с offset: $OFFSET_BYTES"
+log_debug "Mounting with offset: $OFFSET_BYTES"
 
 mount -o loop,offset="$OFFSET_BYTES" "$CHR_IMG_MOD" "$MOUNT_POINT"
 
 if [[ ! -d "$MOUNT_POINT/rw" ]]; then
-    log_warn "Директория /rw не существует, создаём..."
+    log_warn "Directory /rw does not exist, creating..."
     mkdir -p "$MOUNT_POINT/rw"
 fi
 
-# Создание расширенного autorun с базовой настройкой
+# Create extended autorun with basic configuration
 cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 # ============================================
-# БАЗОВАЯ НАСТРОЙКА - СЕТЬ
+# BASIC CONFIGURATION - NETWORK
 # ============================================
 /ip dns set servers=${DNS_SERVERS}
 /ip dhcp-client remove [find]
@@ -299,7 +299,7 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip route add gateway=${GATEWAY}
 
 # ============================================
-# ПОЛЬЗОВАТЕЛЬ И СИСТЕМА
+# USER AND SYSTEM
 # ============================================
 /user set 0 name=admin password=${ADMIN_PASSWORD}
 /system identity set name=${ROUTER_NAME}
@@ -308,7 +308,7 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /system ntp client servers add address=pool.ntp.org
 
 # ============================================
-# СЕРВИСЫ - ОТКЛЮЧАЕМ НЕБЕЗОПАСНЫЕ
+# SERVICES - DISABLE INSECURE
 # ============================================
 /ip service set telnet disabled=yes
 /ip service set ftp disabled=yes
@@ -319,7 +319,7 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip service set winbox disabled=no
 
 # ============================================
-# ФАЙРВОЛ - ЗАЩИТА ОТ БРУТФОРСА SSH
+# FIREWALL - SSH BRUTE-FORCE PROTECTION
 # ============================================
 /ip firewall filter
 add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
@@ -329,7 +329,7 @@ add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=s
 add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
 
 # ============================================
-# ФАЙРВОЛ - ЗАЩИТА ОТ БРУТФОРСА WINBOX
+# FIREWALL - WINBOX BRUTE-FORCE PROTECTION
 # ============================================
 add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
 add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
@@ -338,18 +338,18 @@ add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list
 add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
 
 # ============================================
-# ФАЙРВОЛ - ЗАЩИТА ОТ DNS AMPLIFICATION
+# FIREWALL - DNS AMPLIFICATION PROTECTION
 # ============================================
-# Отключаем DNS сервер для внешних запросов
+# Disable DNS server for external requests
 /ip dns set allow-remote-requests=no
 
-# Блокируем входящие DNS запросы извне (защита от использования как DNS reflector)
+# Block incoming DNS queries from outside (protection against DNS reflector)
 /ip firewall filter
 add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS queries (anti-amplification)"
 add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP queries"
 
 # ============================================
-# ФАЙРВОЛ - БАЗОВЫЕ ПРАВИЛА
+# FIREWALL - BASIC RULES
 # ============================================
 add chain=input connection-state=established,related action=accept comment="Accept established connections"
 add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
@@ -359,26 +359,31 @@ add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
 add chain=input action=drop comment="Drop all other input"
 
 # ============================================
-# АВТОБЭКАП КОНФИГУРАЦИИ
+# AUTO-BACKUP CONFIGURATION
 # ============================================
 /system script add name=backup-script source="/system backup save name=auto-backup"
 /system scheduler add name=daily-backup interval=1d on-event=backup-script start-time=03:00:00
 
 # ============================================
-# ЛОГИРОВАНИЕ
+# LOGGING
 # ============================================
 /system logging add topics=firewall action=memory
 /system logging add topics=error action=memory
 /system logging add topics=warning action=memory
+
+# ============================================
+# NAT - MASQUERADE
+# ============================================
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
 EOF
 
 sync
 
-log_debug "autorun.scr создан:"
+log_debug "autorun.scr created:"
 cat "$MOUNT_POINT/rw/autorun.scr"
 
 if [[ ! -s "$MOUNT_POINT/rw/autorun.scr" ]]; then
-    log_error "autorun.scr пустой или не создан!"
+    log_error "autorun.scr is empty or not created!"
     umount "$MOUNT_POINT"
     exit 1
 fi
@@ -387,63 +392,63 @@ sync
 umount "$MOUNT_POINT"
 sync
 
-# Проверка MD5 после модификации
+# Check MD5 after modification
 MODIFIED_MD5=$(md5sum "$CHR_IMG_MOD" | awk '{print $1}')
-log_debug "MD5 после модификации: $MODIFIED_MD5"
+log_debug "MD5 after modification: $MODIFIED_MD5"
 
-# Проверка MBR после модификации
+# Check MBR after modification
 MBR_SIG_MOD=$(xxd -s 510 -l 2 -p "$CHR_IMG_MOD")
 if [[ "$MBR_SIG_MOD" != "55aa" ]]; then
-    log_error "MBR повреждён после модификации! Сигнатура: $MBR_SIG_MOD"
+    log_error "MBR corrupted after modification! Signature: $MBR_SIG_MOD"
     exit 1
 fi
 
-log_debug "MBR после модификации: OK"
+log_debug "MBR after modification: OK"
 FINAL_IMG="$CHR_IMG_MOD"
-log_info "Базовая настройка подготовлена ✓"
+log_info "Basic configuration prepared ✓"
 
 # ============================================
-# ФИНАЛЬНОЕ ПОДТВЕРЖДЕНИЕ
+# FINAL CONFIRMATION
 # ============================================
 echo ""
 echo "============================================"
-echo -e "${YELLOW}        ТОЧКА НЕВОЗВРАТА!${NC}"
+echo -e "${YELLOW}        POINT OF NO RETURN!${NC}"
 echo "============================================"
 echo ""
-echo "Образ:      $FINAL_IMG"
-echo "Диск:       $DISK_DEVICE ($DISK_SIZE)"
-echo "IP:         $ADDRESS"
-echo "Шлюз:       $GATEWAY"
-echo "Имя:        $ROUTER_NAME"
-echo "Часовой пояс: $TIMEZONE"
+echo "Image:    $FINAL_IMG"
+echo "Disk:     $DISK_DEVICE ($DISK_SIZE)"
+echo "IP:       $ADDRESS"
+echo "Gateway:  $GATEWAY"
+echo "Name:     $ROUTER_NAME"
+echo "Timezone: $TIMEZONE"
 echo ""
-echo -e "${GREEN}Базовая настройка включает:${NC}"
-echo "  ✓ Файрвол с защитой от брутфорса (SSH, WinBox)"
-echo "  ✓ Защита от DNS amplification атак"
-echo "  ✓ Отключение небезопасных сервисов"
-echo "  ✓ Настройка NTP (pool.ntp.org)"
-echo "  ✓ Ежедневный автобэкап (03:00)"
-echo "  ✓ Логирование firewall/error/warning"
+echo -e "${GREEN}Basic configuration includes:${NC}"
+echo "  ✓ Firewall with brute-force protection (SSH, WinBox)"
+echo "  ✓ DNS amplification attack protection"
+echo "  ✓ Disable insecure services"
+echo "  ✓ NTP configuration (pool.ntp.org)"
+echo "  ✓ Daily auto-backup (03:00)"
+echo "  ✓ Logging firewall/error/warning"
 echo ""
-echo -e "${RED}ВСЕ ДАННЫЕ НА $DISK_DEVICE БУДУТ УНИЧТОЖЕНЫ!${NC}"
+echo -e "${RED}ALL DATA ON $DISK_DEVICE WILL BE DESTROYED!${NC}"
 echo ""
 
 if [[ "$AUTO_YES" == true ]]; then
-    log_warn "Автоматический режим (--yes), продолжаем без подтверждения..."
+    log_warn "Automatic mode (--yes), continuing without confirmation..."
 else
-    read -p "Введи 'YES' для продолжения: " confirm
+    read -p "Type 'YES' to continue: " confirm
     if [[ "$confirm" != "YES" ]]; then
-        log_info "Отменено"
+        log_info "Cancelled"
         exit 0
     fi
 fi
 
 # ============================================
-# ЗАПИСЬ НА ДИСК
+# WRITE TO DISK
 # ============================================
-log_info "Запись образа на $DISK_DEVICE..."
+log_info "Writing image to $DISK_DEVICE..."
 
-log_info "Перевод файловой системы в read-only..."
+log_info "Switching filesystem to read-only..."
 sync
 echo 1 > /proc/sys/kernel/sysrq
 echo u > /proc/sysrq-trigger
@@ -451,28 +456,28 @@ sleep 2
 
 dd if="$FINAL_IMG" of="$DISK_DEVICE" bs=4M oflag=direct status=progress
 
-log_info "Запись завершена"
+log_info "Write completed"
 
 # ============================================
-# ЗАВЕРШЕНИЕ
+# COMPLETION
 # ============================================
 echo ""
 log_info "=========================================="
-log_info "Установка CHR с базовой настройкой завершена!"
+log_info "CHR installation with basic config completed!"
 log_info "=========================================="
 echo ""
-echo "CHR будет доступен: ${ADDRESS%/*}"
+echo "CHR will be available at: ${ADDRESS%/*}"
 echo ""
-echo -e "${GREEN}Настроено:${NC}"
-echo "  • Имя роутера: $ROUTER_NAME"
-echo "  • Часовой пояс: $TIMEZONE"
-echo "  • Файрвол с защитой от брутфорса"
-echo "  • Защита от DNS amplification"
-echo "  • Автобэкап каждый день в 03:00"
+echo -e "${GREEN}Configured:${NC}"
+echo "  • Router name: $ROUTER_NAME"
+echo "  • Timezone: $TIMEZONE"
+echo "  • Firewall with brute-force protection"
+echo "  • DNS amplification protection"
+echo "  • Auto-backup daily at 03:00"
 echo ""
 
 if [[ "$AUTO_YES" == true && "$AUTO_REBOOT" == true ]]; then
-    log_info "Автоматическая перезагрузка через 3 секунды..."
+    log_info "Automatic reboot in 3 seconds..."
     sleep 3
     echo 1 > /proc/sys/kernel/sysrq
     echo s > /proc/sysrq-trigger
@@ -481,11 +486,11 @@ if [[ "$AUTO_YES" == true && "$AUTO_REBOOT" == true ]]; then
     sleep 1
     echo b > /proc/sysrq-trigger
 elif [[ "$AUTO_YES" == true ]]; then
-    log_info "Перезагрузи вручную: reboot"
+    log_info "Reboot manually: reboot"
 else
-    read -p "Перезагрузить сейчас? (y/n): " do_reboot
+    read -p "Reboot now? (y/n): " do_reboot
     if [[ "$do_reboot" == "y" ]]; then
-        log_info "Перезагрузка..."
+        log_info "Rebooting..."
         sleep 2
         echo 1 > /proc/sys/kernel/sysrq
         echo s > /proc/sysrq-trigger
@@ -494,6 +499,6 @@ else
         sleep 1
         echo b > /proc/sysrq-trigger
     else
-        log_info "Перезагрузи вручную: reboot"
+        log_info "Reboot manually: reboot"
     fi
 fi

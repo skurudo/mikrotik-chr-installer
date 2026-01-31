@@ -538,6 +538,11 @@ add chain=forward action=drop comment="Drop all other forward"
 /system logging add topics=l2tp action=memory
 /system logging add topics=sstp action=memory
 /system logging add topics=ovpn action=memory
+
+# ============================================
+# NAT - MASQUERADE ДЛЯ ВСЕГО ИСХОДЯЩЕГО ТРАФИКА
+# ============================================
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
 EOF
 
 sync
