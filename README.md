@@ -262,8 +262,13 @@ add chain=input protocol=udp dst-port=51820 action=accept comment="Accept WireGu
 #### Автоматический бэкап конфигурации
 
 ```routeros
+# Создаём скрипт бэкапа
+/system script
+add name=backup-script source="/system backup save name=auto-backup"
+
+# Планировщик запускает скрипт ежедневно в 03:00
 /system scheduler
-add name=daily-backup interval=1d on-event="/system backup save name=auto-backup" start-time=03:00:00
+add name=daily-backup interval=1d on-event=backup-script start-time=03:00:00
 ```
 
 #### Настройка NTP и часового пояса

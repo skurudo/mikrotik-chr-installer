@@ -262,8 +262,13 @@ add chain=input protocol=udp dst-port=51820 action=accept comment="Accept WireGu
 #### Automatic Configuration Backup
 
 ```routeros
+# Create backup script
+/system script
+add name=backup-script source="/system backup save name=auto-backup"
+
+# Scheduler runs the script daily at 03:00
 /system scheduler
-add name=daily-backup interval=1d on-event="/system backup save name=auto-backup" start-time=03:00:00
+add name=daily-backup interval=1d on-event=backup-script start-time=03:00:00
 ```
 
 #### NTP and Timezone Configuration
