@@ -185,13 +185,128 @@ done
 /ip dns set servers=8.8.8.8,8.8.4.4
 /ip service set telnet disabled=yes
 /ip service set ftp disabled=yes
-/ip service set www disabled=no
+/ip service set www disabled=yes
 /ip service set ssh disabled=no
 /ip service set api disabled=yes
 /ip service set api-ssl disabled=yes
 /ip service set winbox disabled=no
 /ip address add address=ВАШ_IP interface=ether1
 /ip route add gateway=ВАШ_ШЛЮЗ
+```
+
+## 🛠️ Кастомизация autorun.scr
+
+Вы можете отредактировать скрипт и добавить свою конфигурацию в `autorun.scr`. Это позволяет CHR загрузиться с полностью готовыми настройками — файрволом, VPN, пользователями и т.д.
+
+### Где редактировать
+
+Найдите в `chr-installer.sh` блок создания autorun (примерно строка 297):
+
+```bash
+cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
+# Ваша конфигурация здесь
+EOF
+```
+
+### Примеры кастомной конфигурации
+
+#### Базовый файрвол для VPS
+
+```routeros
+# Защита от брутфорса SSH
+/ip firewall filter
+add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
+
+# Базовые правила
+add chain=input connection-state=established,related action=accept comment="Accept established"
+add chain=input connection-state=invalid action=drop comment="Drop invalid"
+add chain=input protocol=icmp action=accept comment="Accept ICMP"
+add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
+add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
+add chain=input action=drop comment="Drop all other"
+```
+
+#### Ограничение доступа по IP
+
+```routeros
+# Разрешить управление только с определённых IP
+/ip firewall address-list
+add list=management address=YOUR_HOME_IP comment="Home IP"
+add list=management address=YOUR_OFFICE_IP comment="Office IP"
+
+/ip firewall filter
+add chain=input src-address-list=management action=accept comment="Allow management IPs"
+add chain=input protocol=tcp dst-port=22,8291,80,443 action=drop comment="Block management from others"
+```
+
+#### Настройка WireGuard VPN
+
+```routeros
+/interface wireguard
+add name=wg0 listen-port=51820 private-key="YOUR_PRIVATE_KEY"
+
+/interface wireguard peers
+add interface=wg0 public-key="PEER_PUBLIC_KEY" allowed-address=10.0.0.2/32
+
+/ip address
+add address=10.0.0.1/24 interface=wg0
+
+/ip firewall filter
+add chain=input protocol=udp dst-port=51820 action=accept comment="Accept WireGuard"
+```
+
+#### Автоматический бэкап конфигурации
+
+```routeros
+/system scheduler
+add name=daily-backup interval=1d on-event="/system backup save name=auto-backup" start-time=03:00:00
+```
+
+#### Настройка NTP и часового пояса
+
+```routeros
+/system clock set time-zone-name=Europe/Moscow
+/system ntp client set enabled=yes
+/system ntp client servers add address=pool.ntp.org
+```
+
+### Полный пример кастомного autorun.scr
+
+```bash
+cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
+# === Базовая настройка ===
+/ip dns set servers=${DNS_SERVERS}
+/ip dhcp-client remove [find]
+/ip address add address=${ADDRESS} interface=[/interface ethernet find where name=ether1]
+/ip route add gateway=${GATEWAY}
+/user set 0 name=admin password=${ADMIN_PASSWORD}
+
+# === Сервисы ===
+/ip service set telnet disabled=yes
+/ip service set ftp disabled=yes
+/ip service set www disabled=no
+/ip service set ssh disabled=no port=22
+/ip service set api disabled=yes
+/ip service set api-ssl disabled=yes
+/ip service set winbox disabled=no
+
+# === Файрвол ===
+/ip firewall filter
+add chain=input connection-state=established,related action=accept
+add chain=input connection-state=invalid action=drop
+add chain=input protocol=icmp action=accept
+add chain=input protocol=tcp dst-port=22 action=accept
+add chain=input protocol=tcp dst-port=8291 action=accept
+add chain=input action=drop
+
+# === Система ===
+/system clock set time-zone-name=Europe/Moscow
+/system identity set name=MikroTik-CHR
+EOF
 ```
 
 ## 🐛 Решение проблем

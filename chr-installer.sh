@@ -298,7 +298,7 @@ else
 /ip dns set servers=${DNS_SERVERS}
 /ip service set telnet disabled=yes
 /ip service set ftp disabled=yes
-/ip service set www disabled=no
+/ip service set www disabled=yes
 /ip service set ssh disabled=no
 /ip service set api disabled=yes
 /ip service set api-ssl disabled=yes

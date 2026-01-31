@@ -194,6 +194,121 @@ The autorun script configures:
 /ip route add gateway=YOUR_GATEWAY
 ```
 
+## 🛠️ Customizing autorun.scr
+
+You can edit the script and add your own configuration to `autorun.scr`. This allows CHR to boot with a fully prepared setup — firewall, VPN, users, etc.
+
+### Where to Edit
+
+Find the autorun creation block in `chr-installer.sh` (around line 297):
+
+```bash
+cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
+# Your configuration here
+EOF
+```
+
+### Custom Configuration Examples
+
+#### Basic VPS Firewall
+
+```routeros
+# SSH brute force protection
+/ip firewall filter
+add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
+add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
+
+# Basic rules
+add chain=input connection-state=established,related action=accept comment="Accept established"
+add chain=input connection-state=invalid action=drop comment="Drop invalid"
+add chain=input protocol=icmp action=accept comment="Accept ICMP"
+add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
+add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
+add chain=input action=drop comment="Drop all other"
+```
+
+#### IP-Based Access Restriction
+
+```routeros
+# Allow management only from specific IPs
+/ip firewall address-list
+add list=management address=YOUR_HOME_IP comment="Home IP"
+add list=management address=YOUR_OFFICE_IP comment="Office IP"
+
+/ip firewall filter
+add chain=input src-address-list=management action=accept comment="Allow management IPs"
+add chain=input protocol=tcp dst-port=22,8291,80,443 action=drop comment="Block management from others"
+```
+
+#### WireGuard VPN Setup
+
+```routeros
+/interface wireguard
+add name=wg0 listen-port=51820 private-key="YOUR_PRIVATE_KEY"
+
+/interface wireguard peers
+add interface=wg0 public-key="PEER_PUBLIC_KEY" allowed-address=10.0.0.2/32
+
+/ip address
+add address=10.0.0.1/24 interface=wg0
+
+/ip firewall filter
+add chain=input protocol=udp dst-port=51820 action=accept comment="Accept WireGuard"
+```
+
+#### Automatic Configuration Backup
+
+```routeros
+/system scheduler
+add name=daily-backup interval=1d on-event="/system backup save name=auto-backup" start-time=03:00:00
+```
+
+#### NTP and Timezone Configuration
+
+```routeros
+/system clock set time-zone-name=America/New_York
+/system ntp client set enabled=yes
+/system ntp client servers add address=pool.ntp.org
+```
+
+### Full Custom autorun.scr Example
+
+```bash
+cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
+# === Basic Setup ===
+/ip dns set servers=${DNS_SERVERS}
+/ip dhcp-client remove [find]
+/ip address add address=${ADDRESS} interface=[/interface ethernet find where name=ether1]
+/ip route add gateway=${GATEWAY}
+/user set 0 name=admin password=${ADMIN_PASSWORD}
+
+# === Services ===
+/ip service set telnet disabled=yes
+/ip service set ftp disabled=yes
+/ip service set www disabled=no
+/ip service set ssh disabled=no port=22
+/ip service set api disabled=yes
+/ip service set api-ssl disabled=yes
+/ip service set winbox disabled=no
+
+# === Firewall ===
+/ip firewall filter
+add chain=input connection-state=established,related action=accept
+add chain=input connection-state=invalid action=drop
+add chain=input protocol=icmp action=accept
+add chain=input protocol=tcp dst-port=22 action=accept
+add chain=input protocol=tcp dst-port=8291 action=accept
+add chain=input action=drop
+
+# === System ===
+/system clock set time-zone-name=America/New_York
+/system identity set name=MikroTik-CHR
+EOF
+```
+
 ## 🐛 Troubleshooting
 
 ### CHR doesn't boot
