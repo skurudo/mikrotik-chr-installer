@@ -340,49 +340,26 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip service set ssh disabled=no port=22
 /ip service set winbox disabled=no
 
-# ============================================
-# FIREWALL - BASIC RULES (first for performance)
-# ============================================
-/ip firewall filter
-add chain=input connection-state=established,related action=accept comment="Accept established connections"
-add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
-
-# ============================================
-# FIREWALL - SSH BRUTE-FORCE PROTECTION
-# ============================================
-add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
-add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
-add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
-
-# ============================================
-# FIREWALL - WINBOX BRUTE-FORCE PROTECTION
-# ============================================
-add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
-add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
-add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
-
-# ============================================
-# FIREWALL - DNS AMPLIFICATION PROTECTION
-# ============================================
-# Disable DNS server for external requests
+# FIREWALL - INPUT CHAIN
+/ip firewall filter add chain=input connection-state=established,related action=accept comment="Accept established"
+/ip firewall filter add chain=input connection-state=invalid action=drop comment="Drop invalid"
+/ip firewall filter add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
 /ip dns set allow-remote-requests=no
-
-# Block incoming DNS queries from outside (protection against DNS reflector)
-/ip firewall filter
-add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS queries (anti-amplification)"
-add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP queries"
-
-# ============================================
-# FIREWALL - ALLOWED SERVICES
-# ============================================
-add chain=input protocol=icmp action=accept comment="Accept ICMP (ping)"
-add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
-add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
-add chain=input action=drop comment="Drop all other input"
+/ip firewall filter add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS UDP"
+/ip firewall filter add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP"
+/ip firewall filter add chain=input protocol=icmp action=accept comment="Accept ICMP"
+/ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
+/ip firewall filter add chain=input action=drop comment="Drop all other"
 
 # ============================================
 # AUTO-BACKUP CONFIGURATION

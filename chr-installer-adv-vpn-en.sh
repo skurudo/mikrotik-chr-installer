@@ -478,73 +478,44 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 # ============================================
 /ip firewall nat add chain=dstnat protocol=tcp dst-port=${OVPN_TCP_PORT} action=redirect to-ports=${OVPN_PORT} comment="Redirect OpenVPN TCP alt port to main"
 
-# ============================================
-# FIREWALL - BASIC RULES (first for performance)
-# ============================================
-/ip firewall filter
-add chain=input connection-state=established,related action=accept comment="Accept established connections"
-add chain=input connection-state=invalid action=drop comment="Drop invalid connections"
-
-# ============================================
-# FIREWALL - SSH BRUTE-FORCE PROTECTION
-# ============================================
-add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
-add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
-add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
-
-# ============================================
-# FIREWALL - WINBOX BRUTE-FORCE PROTECTION
-# ============================================
-add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
-add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
-add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m
-add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
-
-# ============================================
-# FIREWALL - DNS AMPLIFICATION PROTECTION
-# ============================================
+# FIREWALL - INPUT CHAIN
+/ip firewall filter add chain=input connection-state=established,related action=accept comment="Accept established"
+/ip firewall filter add chain=input connection-state=invalid action=drop comment="Drop invalid"
+/ip firewall filter add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
 /ip dns set allow-remote-requests=no
-/ip firewall filter
-add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS queries (anti-amplification)"
-add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP queries"
-
-# ============================================
-# FIREWALL - ALLOWED SERVICES
-# ============================================
-add chain=input protocol=icmp action=accept comment="Accept ICMP (ping)"
-add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
-add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
-
-# ============================================
-# FIREWALL - VPN PORTS
-# ============================================
-add chain=input protocol=tcp dst-port=1723 action=accept comment="Accept PPTP"
-add chain=input protocol=gre action=accept comment="Accept GRE (PPTP)"
-add chain=input protocol=udp dst-port=500 action=accept comment="Accept IKE (L2TP/IPsec)"
-add chain=input protocol=udp dst-port=4500 action=accept comment="Accept NAT-T (L2TP/IPsec)"
-add chain=input protocol=udp dst-port=1701 action=accept comment="Accept L2TP"
-add chain=input protocol=ipsec-esp action=accept comment="Accept IPsec ESP"
-add chain=input protocol=ipsec-ah action=accept comment="Accept IPsec AH"
-add chain=input protocol=tcp dst-port=${SSTP_PORT} action=accept comment="Accept SSTP"
-add chain=input protocol=tcp dst-port=${OVPN_PORT} action=accept comment="Accept OpenVPN TCP"
-add chain=input protocol=udp dst-port=${OVPN_PORT} action=accept comment="Accept OpenVPN UDP"
-add chain=input protocol=tcp dst-port=${OVPN_TCP_PORT} action=accept comment="Accept OpenVPN TCP alt port"
-add chain=input protocol=udp dst-port=${WG_SERVER_PORT} action=accept comment="Accept WireGuard"
-
-# Final rule
-add chain=input action=drop comment="Drop all other input"
-
-# ============================================
-# FIREWALL - FORWARD FOR VPN
-# ============================================
-add chain=forward connection-state=established,related action=accept comment="Accept established forward"
-add chain=forward connection-state=invalid action=drop comment="Drop invalid forward"
-add chain=forward src-address=${VPN_POOL} action=accept comment="Accept forward from VPN"
-add chain=forward src-address=${WG_NETWORK} action=accept comment="Accept forward from WireGuard"
-add chain=forward action=drop comment="Drop all other forward"
+/ip firewall filter add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS UDP"
+/ip firewall filter add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP"
+/ip firewall filter add chain=input protocol=icmp action=accept comment="Accept ICMP"
+/ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
+/ip firewall filter add chain=input protocol=tcp dst-port=1723 action=accept comment="Accept PPTP"
+/ip firewall filter add chain=input protocol=gre action=accept comment="Accept GRE"
+/ip firewall filter add chain=input protocol=udp dst-port=500 action=accept comment="Accept IKE"
+/ip firewall filter add chain=input protocol=udp dst-port=4500 action=accept comment="Accept NAT-T"
+/ip firewall filter add chain=input protocol=udp dst-port=1701 action=accept comment="Accept L2TP"
+/ip firewall filter add chain=input protocol=ipsec-esp action=accept comment="Accept IPsec ESP"
+/ip firewall filter add chain=input protocol=ipsec-ah action=accept comment="Accept IPsec AH"
+/ip firewall filter add chain=input protocol=tcp dst-port=${SSTP_PORT} action=accept comment="Accept SSTP"
+/ip firewall filter add chain=input protocol=tcp dst-port=${OVPN_PORT} action=accept comment="Accept OpenVPN TCP"
+/ip firewall filter add chain=input protocol=udp dst-port=${OVPN_PORT} action=accept comment="Accept OpenVPN UDP"
+/ip firewall filter add chain=input protocol=tcp dst-port=${OVPN_TCP_PORT} action=accept comment="Accept OpenVPN alt"
+/ip firewall filter add chain=input protocol=udp dst-port=${WG_SERVER_PORT} action=accept comment="Accept WireGuard"
+/ip firewall filter add chain=input action=drop comment="Drop all other input"
+# FIREWALL - FORWARD CHAIN
+/ip firewall filter add chain=forward connection-state=established,related action=accept comment="Accept established fwd"
+/ip firewall filter add chain=forward connection-state=invalid action=drop comment="Drop invalid fwd"
+/ip firewall filter add chain=forward src-address=${VPN_POOL} action=accept comment="Accept from VPN"
+/ip firewall filter add chain=forward src-address=${WG_NETWORK} action=accept comment="Accept from WireGuard"
+/ip firewall filter add chain=forward action=drop comment="Drop all other forward"
 
 # ============================================
 # AUTO-BACKUP CONFIGURATION
