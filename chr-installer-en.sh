@@ -326,14 +326,10 @@ else
 /ip service set api-ssl disabled=yes
 /ip service set winbox disabled=no
 /ip dhcp-client remove [find]
-/ip address add address=${ADDRESS} interface=[/interface ethernet find where name=ether1]
+/ip address add address=${ADDRESS} interface=ether1
 /ip route add gateway=${GATEWAY}
 /user set 0 name=admin password=${ADMIN_PASSWORD}
-/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
-
-# ============================================
-# SECURITY - REMOVE AUTORUN AFTER EXECUTION
-# ============================================
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
 /file remove [find name~"autorun"]
 EOF
     

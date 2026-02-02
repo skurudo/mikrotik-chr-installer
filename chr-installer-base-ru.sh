@@ -310,28 +310,17 @@ if [[ ! -d "$MOUNT_POINT/rw" ]]; then
     mkdir -p "$MOUNT_POINT/rw"
 fi
 
-# Создание расширенного autorun с базовой настройкой
+# Создание autorun (без комментариев для совместимости с RouterOS)
 cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
-# ============================================
-# БАЗОВАЯ НАСТРОЙКА - СЕТЬ
-# ============================================
 /ip dns set servers=${DNS_SERVERS}
 /ip dhcp-client remove [find]
-/ip address add address=${ADDRESS} interface=[/interface ethernet find where name=ether1]
+/ip address add address=${ADDRESS} interface=ether1
 /ip route add gateway=${GATEWAY}
-
-# ============================================
-# ПОЛЬЗОВАТЕЛЬ И СИСТЕМА
-# ============================================
 /user set 0 name=admin password=${ADMIN_PASSWORD}
 /system identity set name=${ROUTER_NAME}
 /system clock set time-zone-name=${TIMEZONE}
 /system ntp client set enabled=yes
 /system ntp client servers add address=pool.ntp.org
-
-# ============================================
-# СЕРВИСЫ - ОТКЛЮЧАЕМ НЕБЕЗОПАСНЫЕ
-# ============================================
 /ip service set telnet disabled=yes
 /ip service set ftp disabled=yes
 /ip service set www disabled=yes
@@ -339,49 +328,31 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip service set api-ssl disabled=yes
 /ip service set ssh disabled=no port=22
 /ip service set winbox disabled=no
-
-# ФАЙРВОЛ - INPUT CHAIN
-/ip firewall filter add chain=input connection-state=established,related action=accept comment="Accept established"
-/ip firewall filter add chain=input connection-state=invalid action=drop comment="Drop invalid"
-/ip firewall filter add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
+/ip firewall filter add chain=input connection-state=established,related action=accept
+/ip firewall filter add chain=input connection-state=invalid action=drop
+/ip firewall filter add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
-/ip firewall filter add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
 /ip dns set allow-remote-requests=no
-/ip firewall filter add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS UDP"
-/ip firewall filter add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP"
-/ip firewall filter add chain=input protocol=icmp action=accept comment="Accept ICMP"
-/ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
-/ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
-/ip firewall filter add chain=input action=drop comment="Drop all other"
-
-# ============================================
-# АВТОБЭКАП КОНФИГУРАЦИИ
-# ============================================
+/ip firewall filter add chain=input protocol=udp dst-port=53 action=drop
+/ip firewall filter add chain=input protocol=tcp dst-port=53 action=drop
+/ip firewall filter add chain=input protocol=icmp action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept
+/ip firewall filter add chain=input action=drop
 /system script add name=backup-script source="/system backup save name=auto-backup"
 /system scheduler add name=daily-backup interval=1d on-event=backup-script start-time=03:00:00
-
-# ============================================
-# ЛОГИРОВАНИЕ
-# ============================================
 /system logging add topics=firewall action=memory
 /system logging add topics=error action=memory
 /system logging add topics=warning action=memory
-
-# ============================================
-# NAT - MASQUERADE
-# ============================================
-/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
-
-# ============================================
-# БЕЗОПАСНОСТЬ - УДАЛЕНИЕ AUTORUN ПОСЛЕ ВЫПОЛНЕНИЯ
-# ============================================
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
 /file remove [find name~"autorun"]
 EOF
 

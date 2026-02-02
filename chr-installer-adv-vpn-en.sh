@@ -374,28 +374,17 @@ if [[ ! -d "$MOUNT_POINT/rw" ]]; then
     mkdir -p "$MOUNT_POINT/rw"
 fi
 
-# Create extended autorun with VPN configuration
+# Create autorun (no comments for RouterOS compatibility)
 cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
-# ============================================
-# BASIC CONFIGURATION - NETWORK
-# ============================================
 /ip dns set servers=${DNS_SERVERS}
 /ip dhcp-client remove [find]
-/ip address add address=${ADDRESS} interface=[/interface ethernet find where name=ether1]
+/ip address add address=${ADDRESS} interface=ether1
 /ip route add gateway=${GATEWAY}
-
-# ============================================
-# USER AND SYSTEM
-# ============================================
 /user set 0 name=admin password=${ADMIN_PASSWORD}
 /system identity set name=${ROUTER_NAME}
 /system clock set time-zone-name=${TIMEZONE}
 /system ntp client set enabled=yes
 /system ntp client servers add address=pool.ntp.org
-
-# ============================================
-# SERVICES - DISABLE INSECURE
-# ============================================
 /ip service set telnet disabled=yes
 /ip service set ftp disabled=yes
 /ip service set www disabled=yes
@@ -403,53 +392,18 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip service set api-ssl disabled=yes
 /ip service set ssh disabled=no port=22
 /ip service set winbox disabled=no
-
-# ============================================
-# VPN - ADDRESS POOL
-# ============================================
 /ip pool add name=vpn-pool ranges=${VPN_POOL_START}-${VPN_POOL_END}
-
-# ============================================
-# VPN - PPP PROFILE
-# ============================================
 /ppp profile add name=vpn-profile local-address=${VPN_LOCAL_IP} remote-address=vpn-pool dns-server=${DNS_SERVERS} use-encryption=yes
-
-# ============================================
-# VPN - OPENVPN PUSH ROUTES
-# ============================================
-# Default route through VPN (all traffic)
 /ppp profile set vpn-profile push-routes="0.0.0.0/0 ${VPN_LOCAL_IP}"
-
-# ============================================
-# VPN - USER
-# ============================================
 /ppp secret add name=${VPN_USER} password=${VPN_USER_PASSWORD} profile=vpn-profile service=any
-
-# ============================================
-# VPN - PPTP SERVER
-# ============================================
 /interface pptp-server server set enabled=yes default-profile=vpn-profile authentication=mschap2
-
-# ============================================
-# VPN - L2TP/IPSEC SERVER
-# ============================================
 /interface l2tp-server server set enabled=yes default-profile=vpn-profile authentication=mschap2 use-ipsec=yes ipsec-secret=${IPSEC_SECRET}
-
-# ============================================
-# VPN - SSTP SERVER
-# ============================================
-# Create self-signed certificate for SSTP
 /certificate add name=sstp-ca common-name=sstp-ca days-valid=3650 key-size=2048 key-usage=key-cert-sign,crl-sign
 /certificate sign sstp-ca
 /certificate add name=sstp-server common-name=${SERVER_IP} days-valid=3650 key-size=2048 key-usage=digital-signature,key-encipherment,tls-server
 /certificate sign sstp-server ca=sstp-ca
 /certificate set sstp-server trusted=yes
 /interface sstp-server server set enabled=yes default-profile=vpn-profile authentication=mschap2 certificate=sstp-server port=${SSTP_PORT}
-
-# ============================================
-# VPN - OPENVPN SERVER
-# ============================================
-# Create certificate for OpenVPN
 /certificate add name=ovpn-ca common-name=ovpn-ca days-valid=3650 key-size=2048 key-usage=key-cert-sign,crl-sign
 /certificate sign ovpn-ca
 /certificate add name=ovpn-server common-name=ovpn-server days-valid=3650 key-size=2048 key-usage=digital-signature,key-encipherment,tls-server
@@ -458,74 +412,49 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /certificate add name=ovpn-client common-name=ovpn-client days-valid=3650 key-size=2048 key-usage=tls-client
 /certificate sign ovpn-client ca=ovpn-ca
 /interface ovpn-server server set enabled=yes default-profile=vpn-profile certificate=ovpn-server auth=sha256 cipher=aes256-cbc port=${OVPN_PORT} require-client-certificate=no
-
-# ============================================
-# VPN - WIREGUARD SERVER
-# ============================================
 /interface wireguard add name=wg0 listen-port=${WG_SERVER_PORT} private-key="${WG_SERVER_PRIVATE_KEY}"
 /ip address add address=${WG_NETWORK%.*}.1/24 interface=wg0
-# Peer is added manually after receiving client's public key:
-# /interface wireguard peers add interface=wg0 public-key="CLIENT_PUBLIC_KEY" allowed-address=10.10.20.2/32
-
-# ============================================
-# NAT - MASQUERADE FOR VPN
-# ============================================
-/ip firewall nat add chain=srcnat src-address=${VPN_POOL} action=masquerade comment="NAT for VPN clients"
-/ip firewall nat add chain=srcnat src-address=${WG_NETWORK} action=masquerade comment="NAT for WireGuard clients"
-
-# ============================================
-# NAT - REDIRECT OPENVPN TCP ALT PORT
-# ============================================
-/ip firewall nat add chain=dstnat protocol=tcp dst-port=${OVPN_TCP_PORT} action=redirect to-ports=${OVPN_PORT} comment="Redirect OpenVPN TCP alt port to main"
-
-# FIREWALL - INPUT CHAIN
-/ip firewall filter add chain=input connection-state=established,related action=accept comment="Accept established"
-/ip firewall filter add chain=input connection-state=invalid action=drop comment="Drop invalid"
-/ip firewall filter add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute force"
+/ip firewall nat add chain=srcnat src-address=${VPN_POOL} action=masquerade
+/ip firewall nat add chain=srcnat src-address=${WG_NETWORK} action=masquerade
+/ip firewall nat add chain=dstnat protocol=tcp dst-port=${OVPN_TCP_PORT} action=redirect to-ports=${OVPN_PORT}
+/ip firewall filter add chain=input connection-state=established,related action=accept
+/ip firewall filter add chain=input connection-state=invalid action=drop
+/ip firewall filter add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=22 connection-state=new action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m
-/ip firewall filter add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop WinBox brute force"
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m
 /ip firewall filter add chain=input protocol=tcp dst-port=8291 connection-state=new action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m
 /ip dns set allow-remote-requests=no
-/ip firewall filter add chain=input protocol=udp dst-port=53 action=drop comment="Drop external DNS UDP"
-/ip firewall filter add chain=input protocol=tcp dst-port=53 action=drop comment="Drop external DNS TCP"
-/ip firewall filter add chain=input protocol=icmp action=accept comment="Accept ICMP"
-/ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept comment="Accept SSH"
-/ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept comment="Accept WinBox"
-/ip firewall filter add chain=input protocol=tcp dst-port=1723 action=accept comment="Accept PPTP"
-/ip firewall filter add chain=input protocol=gre action=accept comment="Accept GRE"
-/ip firewall filter add chain=input protocol=udp dst-port=500 action=accept comment="Accept IKE"
-/ip firewall filter add chain=input protocol=udp dst-port=4500 action=accept comment="Accept NAT-T"
-/ip firewall filter add chain=input protocol=udp dst-port=1701 action=accept comment="Accept L2TP"
-/ip firewall filter add chain=input protocol=ipsec-esp action=accept comment="Accept IPsec ESP"
-/ip firewall filter add chain=input protocol=ipsec-ah action=accept comment="Accept IPsec AH"
-/ip firewall filter add chain=input protocol=tcp dst-port=${SSTP_PORT} action=accept comment="Accept SSTP"
-/ip firewall filter add chain=input protocol=tcp dst-port=${OVPN_PORT} action=accept comment="Accept OpenVPN TCP"
-/ip firewall filter add chain=input protocol=udp dst-port=${OVPN_PORT} action=accept comment="Accept OpenVPN UDP"
-/ip firewall filter add chain=input protocol=tcp dst-port=${OVPN_TCP_PORT} action=accept comment="Accept OpenVPN alt"
-/ip firewall filter add chain=input protocol=udp dst-port=${WG_SERVER_PORT} action=accept comment="Accept WireGuard"
-/ip firewall filter add chain=input action=drop comment="Drop all other input"
-# FIREWALL - FORWARD CHAIN
-/ip firewall filter add chain=forward connection-state=established,related action=accept comment="Accept established fwd"
-/ip firewall filter add chain=forward connection-state=invalid action=drop comment="Drop invalid fwd"
-/ip firewall filter add chain=forward src-address=${VPN_POOL} action=accept comment="Accept from VPN"
-/ip firewall filter add chain=forward src-address=${WG_NETWORK} action=accept comment="Accept from WireGuard"
-/ip firewall filter add chain=forward action=drop comment="Drop all other forward"
-
-# ============================================
-# AUTO-BACKUP CONFIGURATION
-# ============================================
+/ip firewall filter add chain=input protocol=udp dst-port=53 action=drop
+/ip firewall filter add chain=input protocol=tcp dst-port=53 action=drop
+/ip firewall filter add chain=input protocol=icmp action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=22 action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=8291 action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=1723 action=accept
+/ip firewall filter add chain=input protocol=gre action=accept
+/ip firewall filter add chain=input protocol=udp dst-port=500 action=accept
+/ip firewall filter add chain=input protocol=udp dst-port=4500 action=accept
+/ip firewall filter add chain=input protocol=udp dst-port=1701 action=accept
+/ip firewall filter add chain=input protocol=ipsec-esp action=accept
+/ip firewall filter add chain=input protocol=ipsec-ah action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=${SSTP_PORT} action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=${OVPN_PORT} action=accept
+/ip firewall filter add chain=input protocol=udp dst-port=${OVPN_PORT} action=accept
+/ip firewall filter add chain=input protocol=tcp dst-port=${OVPN_TCP_PORT} action=accept
+/ip firewall filter add chain=input protocol=udp dst-port=${WG_SERVER_PORT} action=accept
+/ip firewall filter add chain=input action=drop
+/ip firewall filter add chain=forward connection-state=established,related action=accept
+/ip firewall filter add chain=forward connection-state=invalid action=drop
+/ip firewall filter add chain=forward src-address=${VPN_POOL} action=accept
+/ip firewall filter add chain=forward src-address=${WG_NETWORK} action=accept
+/ip firewall filter add chain=forward action=drop
 /system script add name=backup-script source="/system backup save name=auto-backup"
 /system scheduler add name=daily-backup interval=1d on-event=backup-script start-time=03:00:00
-
-# ============================================
-# LOGGING
-# ============================================
 /system logging add topics=firewall action=memory
 /system logging add topics=error action=memory
 /system logging add topics=warning action=memory
@@ -533,15 +462,7 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /system logging add topics=l2tp action=memory
 /system logging add topics=sstp action=memory
 /system logging add topics=ovpn action=memory
-
-# ============================================
-# NAT - MASQUERADE FOR ALL OUTGOING TRAFFIC
-# ============================================
-/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT for all outgoing traffic"
-
-# ============================================
-# SECURITY - REMOVE AUTORUN AFTER EXECUTION
-# ============================================
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
 /file remove [find name~"autorun"]
 EOF
 
