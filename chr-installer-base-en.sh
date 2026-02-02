@@ -256,11 +256,45 @@ log_info "Detecting network parameters..."
 INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
 ADDRESS=$(ip addr show "$INTERFACE" 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n1)
 GATEWAY=$(ip route | grep default | awk '{print $3}' | head -n1)
+SERVER_IP="${ADDRESS%/*}"
+NETMASK="${ADDRESS#*/}"
 
 if [[ -z "$INTERFACE" || -z "$ADDRESS" || -z "$GATEWAY" ]]; then
     log_error "Failed to detect network parameters"
     log_error "INTERFACE=$INTERFACE ADDRESS=$ADDRESS GATEWAY=$GATEWAY"
     exit 1
+fi
+
+check_same_subnet() {
+    local ip="$1"
+    local gw="$2"
+    local mask="$3"
+    
+    IFS='.' read -r i1 i2 i3 i4 <<< "$ip"
+    IFS='.' read -r g1 g2 g3 g4 <<< "$gw"
+    
+    local full_mask=$(( 0xFFFFFFFF << (32 - mask) & 0xFFFFFFFF ))
+    local m1=$(( (full_mask >> 24) & 255 ))
+    local m2=$(( (full_mask >> 16) & 255 ))
+    local m3=$(( (full_mask >> 8) & 255 ))
+    local m4=$(( full_mask & 255 ))
+    
+    if [[ $((i1 & m1)) -eq $((g1 & m1)) ]] && \
+       [[ $((i2 & m2)) -eq $((g2 & m2)) ]] && \
+       [[ $((i3 & m3)) -eq $((g3 & m3)) ]] && \
+       [[ $((i4 & m4)) -eq $((g4 & m4)) ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+if check_same_subnet "$SERVER_IP" "$GATEWAY" "$NETMASK"; then
+    GATEWAY_IN_SUBNET=true
+    log_info "Gateway in same subnet - using simple route"
+else
+    GATEWAY_IN_SUBNET=false
+    log_info "Gateway in different subnet - using recursive routing (scope)"
 fi
 
 log_info "Interface: $INTERFACE | Address: $ADDRESS | Gateway: $GATEWAY"
@@ -311,11 +345,17 @@ if [[ ! -d "$MOUNT_POINT/rw" ]]; then
 fi
 
 # Create autorun (no comments for RouterOS compatibility)
+if [[ "$GATEWAY_IN_SUBNET" == "true" ]]; then
+    ROUTE_COMMANDS="/ip route add dst-address=0.0.0.0/0 gateway=${GATEWAY}"
+else
+    ROUTE_COMMANDS="/ip route add dst-address=${GATEWAY}/32 gateway=ether1 scope=10
+/ip route add dst-address=0.0.0.0/0 gateway=${GATEWAY} target-scope=11"
+fi
+
 cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip dhcp-client remove [find]
 /ip address add address=${ADDRESS} interface=ether1
-/ip route add dst-address=${GATEWAY}/32 gateway=ether1
-/ip route add dst-address=0.0.0.0/0 gateway=${GATEWAY}
+${ROUTE_COMMANDS}
 /ip dns set servers=${DNS_SERVERS}
 /user set 0 name=admin password=${ADMIN_PASSWORD}
 /system identity set name=${ROUTER_NAME}
