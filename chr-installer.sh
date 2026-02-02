@@ -317,6 +317,9 @@ else
     
     # Создание autorun
     cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
+/ip dhcp-client remove [find]
+/ip address add address=${ADDRESS} interface=ether1
+/ip route add dst-address=0.0.0.0/0 gateway=${GATEWAY}
 /ip dns set servers=${DNS_SERVERS}
 /ip service set telnet disabled=yes
 /ip service set ftp disabled=yes
@@ -325,9 +328,6 @@ else
 /ip service set api disabled=yes
 /ip service set api-ssl disabled=yes
 /ip service set winbox disabled=no
-/ip dhcp-client remove [find]
-/ip address add address=${ADDRESS} interface=ether1
-/ip route add gateway=${GATEWAY}
 /user set 0 name=admin password=${ADMIN_PASSWORD}
 /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
 /file remove [find name~"autorun"]
