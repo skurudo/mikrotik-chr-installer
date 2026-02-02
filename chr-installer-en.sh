@@ -319,6 +319,7 @@ else
     cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip dhcp-client remove [find]
 /ip address add address=${ADDRESS} interface=ether1
+/ip route add dst-address=${GATEWAY}/32 gateway=ether1
 /ip route add dst-address=0.0.0.0/0 gateway=${GATEWAY}
 /ip dns set servers=${DNS_SERVERS}
 /ip service set telnet disabled=yes
