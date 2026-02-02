@@ -394,7 +394,6 @@ cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
 /ip service set winbox disabled=no
 /ip pool add name=vpn-pool ranges=${VPN_POOL_START}-${VPN_POOL_END}
 /ppp profile add name=vpn-profile local-address=${VPN_LOCAL_IP} remote-address=vpn-pool dns-server=${DNS_SERVERS} use-encryption=yes
-/ppp profile set vpn-profile push-routes="0.0.0.0/0 ${VPN_LOCAL_IP}"
 /ppp secret add name=${VPN_USER} password=${VPN_USER_PASSWORD} profile=vpn-profile service=any
 /interface pptp-server server set enabled=yes default-profile=vpn-profile authentication=mschap2
 /interface l2tp-server server set enabled=yes default-profile=vpn-profile authentication=mschap2 use-ipsec=yes ipsec-secret=${IPSEC_SECRET}
