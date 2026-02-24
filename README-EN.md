@@ -154,9 +154,10 @@ done
 
 After installation and reboot, access your CHR via:
 
-- **WinBox**: Connect to your server's IP address
+- **WinBox**: Connect to your server's IP address (port 8291)
 - **SSH**: `ssh admin@YOUR_SERVER_IP`
-- **WebFig**: `http://YOUR_SERVER_IP`
+
+> **Note**: Web interface (WebFig) is disabled by default for security reasons. You can enable it if needed: `/ip service set www disabled=no`
 
 Default credentials:
 - **Username**: `admin`
@@ -185,7 +186,7 @@ The autorun script configures:
 /ip dns set servers=8.8.8.8,8.8.4.4
 /ip service set telnet disabled=yes
 /ip service set ftp disabled=yes
-/ip service set www disabled=no
+/ip service set www disabled=yes
 /ip service set ssh disabled=no
 /ip service set api disabled=yes
 /ip service set api-ssl disabled=yes
@@ -200,7 +201,7 @@ You can edit the script and add your own configuration to `autorun.scr`. This al
 
 ### Where to Edit
 
-Find the autorun creation block in `chr-installer.sh` (around line 297):
+Find the autorun creation block in the installer script (search for `autorun.scr`):
 
 ```bash
 cat > "$MOUNT_POINT/rw/autorun.scr" <<EOF
