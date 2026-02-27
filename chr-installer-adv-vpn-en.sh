@@ -372,7 +372,17 @@ echo ""
 lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -E "(NAME|disk)"
 echo ""
 
-DISK_DEVICE=$(lsblk -ndo NAME,TYPE | grep disk | head -n1 | awk '{print "/dev/"$1}')
+# Detect disk by root partition (excludes fd0, sr0, etc.)
+DISK_DEVICE=""
+ROOT_PART=$(findmnt -n -o SOURCE / 2>/dev/null)
+if [[ -n "$ROOT_PART" ]]; then
+    DISK_DEVICE=$(lsblk -ndo PKNAME "$ROOT_PART" 2>/dev/null)
+    [[ -n "$DISK_DEVICE" ]] && DISK_DEVICE="/dev/$DISK_DEVICE"
+fi
+# Fallback: first real disk (exclude floppy, cdrom, loop)
+if [[ -z "$DISK_DEVICE" ]]; then
+    DISK_DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" && $1!~/^(fd|sr|loop)/ {print "/dev/"$1; exit}')
+fi
 
 if [[ -z "$DISK_DEVICE" ]]; then
     log_error "Disk not found"

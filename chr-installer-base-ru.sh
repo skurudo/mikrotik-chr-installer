@@ -309,7 +309,17 @@ echo ""
 lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -E "(NAME|disk)"
 echo ""
 
-DISK_DEVICE=$(lsblk -ndo NAME,TYPE | grep disk | head -n1 | awk '{print "/dev/"$1}')
+# Определяем диск по корневому разделу (исключает fd0, sr0 и т.д.)
+DISK_DEVICE=""
+ROOT_PART=$(findmnt -n -o SOURCE / 2>/dev/null)
+if [[ -n "$ROOT_PART" ]]; then
+    DISK_DEVICE=$(lsblk -ndo PKNAME "$ROOT_PART" 2>/dev/null)
+    [[ -n "$DISK_DEVICE" ]] && DISK_DEVICE="/dev/$DISK_DEVICE"
+fi
+# Fallback: первый реальный диск (исключаем floppy, cdrom, loop)
+if [[ -z "$DISK_DEVICE" ]]; then
+    DISK_DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" && $1!~/^(fd|sr|loop)/ {print "/dev/"$1; exit}')
+fi
 
 if [[ -z "$DISK_DEVICE" ]]; then
     log_error "Диск не найден"
